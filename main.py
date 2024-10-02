@@ -1,74 +1,91 @@
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+import sqlite3
 
-# Initialize the Flask app
-app = Flask(__name__)
+app = FastAPI()
 
-# Set up SQLite database
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///quests.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+DATABASE = "quest.db"
 
-# Define the Quest model
-class Quest(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False)
-    reward_type = db.Column(db.String(20), nullable=False)  # e.g., gold, diamond
-    reward_qty = db.Column(db.Integer, nullable=False)
 
-# Initialize the database
-with app.app_context():
-    db.create_all()
+# Quest and UserQuest schemas
+class Quest(BaseModel):
+    name: str
+    description: str
 
-# Route to add a new quest
-@app.route('/quests', methods=['POST'])
-def add_quest():
-    data = request.json
-    new_quest = Quest(
-        name=data['name'],
-        reward_type=data['reward_type'],
-        reward_qty=data['reward_qty']
+
+class UserQuest(BaseModel):
+    user_id: int
+    quest_id: int
+
+
+# Connect to the SQLite database
+def get_db():
+    conn = sqlite3.connect(DATABASE)
+    yield conn
+    conn.close()
+
+
+# Create quests and user_quests tables
+with sqlite3.connect(DATABASE) as conn:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL
+        )
+    """
     )
-    db.session.add(new_quest)
-    db.session.commit()
-    return jsonify({"message": "Quest added successfully!"}), 201
 
-# Route to get all quests
-@app.route('/quests', methods=['GET'])
-def get_quests():
-    quests = Quest.query.all()
-    return jsonify([{
-        "id": quest.id,
-        "name": quest.name,
-        "reward_type": quest.reward_type,
-        "reward_qty": quest.reward_qty
-    } for quest in quests]), 200
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_quests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            quest_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'not_claimed'
+        )
+    """
+    )
 
-# Route to get a specific quest by ID
-@app.route('/quests/<int:id>', methods=['GET'])
-def get_quest(id):
-    quest = Quest.query.get(id)
-    if quest is None:
-        return jsonify({"error": "Quest not found"}), 404
 
-    return jsonify({
-        "id": quest.id,
-        "name": quest.name,
-        "reward_type": quest.reward_type,
-        "reward_qty": quest.reward_qty
-    }), 200
+@app.post("/create-quest")
+async def create_quest(quest: Quest, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO quests (name, description) VALUES (?, ?)",
+        (quest.name, quest.description),
+    )
+    db.commit()
+    return {"message": "Quest created successfully"}
 
-# Route to delete a quest by ID
-@app.route('/quests/<int:id>', methods=['DELETE'])
-def delete_quest(id):
-    quest = Quest.query.get(id)
-    if quest is None:
-        return jsonify({"error": "Quest not found"}), 404
 
-    db.session.delete(quest)
-    db.session.commit()
-    return jsonify({"message": "Quest deleted successfully!"}), 200
+@app.post("/assign-quest")
+async def assign_quest(user_quest: UserQuest, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM quests WHERE id = ?", (user_quest.quest_id,))
+    if cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="Quest not found")
 
-# Run the Flask app
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    cursor.execute(
+        "INSERT INTO user_quests (user_id, quest_id) VALUES (?, ?)",
+        (user_quest.user_id, user_quest.quest_id),
+    )
+    db.commit()
+    return {"message": "Quest assigned to user"}
+
+
+@app.get("/user-quests/{user_id}")
+async def get_user_quests(user_id: int, db=Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT quest_id, status FROM user_quests WHERE user_id = ?", (user_id,)
+    )
+    quests = cursor.fetchall()
+
+    if not quests:
+        raise HTTPException(status_code=404, detail="No quests found for user")
+
+    return {
+        "user_quests": [{"quest_id": quest[0], "status": quest[1]} for quest in quests]
+    }
