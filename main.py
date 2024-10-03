@@ -20,9 +20,7 @@ app.add_middleware(
 
 # SQLite database connection
 def get_db():
-    conn = sqlite3.connect(
-        "rewards_system.db", check_same_thread=False
-    ) 
+    conn = sqlite3.connect("rewards_system.db", check_same_thread=False)
     try:
         yield conn
     finally:
@@ -331,13 +329,13 @@ def get_quests_with_rewards(db: sqlite3.Connection = Depends(get_db)):
                 "reward_qty": quest[9],
             }
         )
-
     return quests
 
 
 class AssignQuest(BaseModel):
     user_id: int
     quest_id: int
+    status: str
 
 
 # Assign Quest endpoint
@@ -362,15 +360,13 @@ def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get
         return JSONResponse(
             status_code=500, content={"message": "Internal server error: " + str(e)}
         )
-        
-        
 # Get User Quests endpoint
-@app.get("/user-quests/{user_id}")
+@app.get("/user-quests/{user_id}/")
 def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
         """
-        SELECT uq.user_id, uq.quest_id, uq.status, q.name, q.description
+        SELECT uq.quest_id, q.name, uq.status
         FROM User_Quest_Rewards uq
         JOIN Quests q ON uq.quest_id = q.quest_id
         WHERE uq.user_id = ?
@@ -378,17 +374,62 @@ def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         (user_id,),
     )
     user_quests = cursor.fetchall()
-
     return [
         {
-            "user_id": user_quest[0],
-            "quest_id": user_quest[1],
-            "status": user_quest[2],
-            "quest_name": user_quest[3],
-            "quest_description": user_quest[4],
+            "quest_id": quest[0],
+            "quest_name": quest[1],
+            "status": quest[2],
         }
-        for user_quest in user_quests
+        for quest in user_quests
     ]
+
+
+@app.get("/users-with-quests")
+def get_users_with_quests(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+
+    # Fetch all users
+    cursor.execute("SELECT user_id, user_name, status FROM Users")
+    users = cursor.fetchall()
+
+    # Prepare the result
+    result = []
+    for user in users:
+        user_id, user_name, status = user
+
+        # Fetch quests for the current user
+        cursor.execute(
+            """
+            SELECT uq.quest_id, q.name, uq.status
+            FROM User_Quest_Rewards uq
+            JOIN Quests q ON uq.quest_id = q.quest_id
+            WHERE uq.user_id = ?
+            """,
+            (user_id,),
+        )
+        user_quests = cursor.fetchall()
+
+        # Create a list of quests for the current user
+        quests_list = [
+            {
+                "quest_id": quest[0],
+                "quest_name": quest[1],
+                "status": quest[2],
+            }
+            for quest in user_quests
+        ]
+
+        # Append user info and quests to the result
+        result.append(
+            {
+                "user_id": user_id,
+                "user_name": user_name,
+                "status": status,
+                "quests": quests_list,
+            }
+        )
+
+    return result
 
 
 # Run the app

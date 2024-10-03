@@ -18,12 +18,14 @@ const App = () => {
   const [duplication, setDuplication] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedQuestId, setSelectedQuestId] = useState("");
+  const [usersWithQuests, setUsersWithQuests] = useState([]); // State for users with their quests
 
   // Fetch users, quests, and rewards when component mounts
   useEffect(() => {
     fetchUsers();
     fetchQuests();
     fetchRewards();
+    fetchUsersWithQuests();
   }, []);
 
   const axiosInstance = axios.create({
@@ -119,8 +121,20 @@ const App = () => {
       setSelectedUserId("");
       setSelectedQuestId("");
       console.log("Quest assigned successfully");
+
+      // Fetch updated users with quests
+      fetchUsersWithQuests(); // Update the state with the latest user data
     } catch (error) {
       console.error("Error assigning quest:", error);
+    }
+  };
+
+  const fetchUsersWithQuests = async () => {
+    try {
+      const response = await axiosInstance.get("/users-with-quests");
+      setUsersWithQuests(response.data); // Assuming this response includes quests assigned to each user
+    } catch (error) {
+      console.error("Error fetching users with quests:", error);
     }
   };
 
@@ -242,19 +256,18 @@ const App = () => {
             <option value="">Select Reward</option>
             {rewards.map((reward) => (
               <option key={reward.reward_id} value={reward.reward_id}>
-                {reward.reward_name} (Item: {reward.reward_item}, ID:{" "}
-                {reward.reward_id})
+                {reward.reward_name} (ID: {reward.reward_id})
               </option>
             ))}
           </select>
 
+          <label className="mr-2">Auto Claim:</label>
           <input
             type="checkbox"
             checked={autoClaim}
             onChange={(e) => setAutoClaim(e.target.checked)}
-            className="mr-2"
           />
-          <label className="mr-4">Auto Claim</label>
+
           <input
             type="number"
             value={streak}
@@ -271,7 +284,7 @@ const App = () => {
           />
           <button
             onClick={addQuest}
-            className="bg-yellow-500 text-white p-2 rounded-md"
+            className="bg-purple-500 text-white p-2 rounded-md"
           >
             Add Quest
           </button>
@@ -280,7 +293,7 @@ const App = () => {
           <ul className="list-disc pl-5">
             {quests.map((quest) => (
               <li key={quest.quest_id} className="mb-1">
-                {quest.name} (ID: {quest.quest_id}, Reward ID: {quest.reward_id}
+                {quest.name} - {quest.description} (Reward ID: {quest.reward_id}
                 )
               </li>
             ))}
@@ -291,40 +304,66 @@ const App = () => {
       </div>
 
       {/* Assign Quest to User Section */}
-      <div className="mb-10">
+      <div>
         <h2 className="text-2xl font-semibold mb-4">Assign Quest to User</h2>
-        <div className="mb-4">
-          <select
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value)}
-            className="border rounded-md p-2 mr-2"
-          >
-            <option value="">Select User</option>
-            {users.map((user) => (
-              <option key={user.user_id} value={user.user_id}>
-                {user.user_name}
-              </option>
+        <select
+          value={selectedUserId}
+          onChange={(e) => setSelectedUserId(e.target.value)}
+          className="border rounded-md p-2 mr-2"
+        >
+          <option value="">Select User</option>
+          {users.map((user) => (
+            <option key={user.user_id} value={user.user_id}>
+              {user.user_name} (ID: {user.user_id})
+            </option>
+          ))}
+        </select>
+        <select
+          value={selectedQuestId}
+          onChange={(e) => setSelectedQuestId(e.target.value)}
+          className="border rounded-md p-2 mr-2"
+        >
+          <option value="">Select Quest</option>
+          {quests.map((quest) => (
+            <option key={quest.quest_id} value={quest.quest_id}>
+              {quest.name} (ID: {quest.quest_id})
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={assignQuestToUser}
+          className="bg-orange-500 text-white p-2 rounded-md"
+        >
+          Assign Quest
+        </button>
+      </div>
+
+      {/* Users with Quests Section */}
+      <div className="mt-10">
+        <h2 className="text-2xl font-semibold mb-4">Users with Quests</h2>
+        {usersWithQuests.length > 0 ? (
+          <ul className="list-disc pl-5">
+            {usersWithQuests.map((user) => (
+              <li key={user.user_id} className="mb-1">
+                {user.user_name} (ID: {user.user_id}) - Quests:{" "}
+                {user.quests.length > 0 ? (
+                  <ul className="list-disc pl-5">
+                    {user.quests.map((quest) => (
+                      <li key={quest.quest_id}>
+                        {quest.name} (ID: {quest.quest_id}, Status:{" "}
+                        {quest.status})
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  "No quests assigned."
+                )}
+              </li>
             ))}
-          </select>
-          <select
-            value={selectedQuestId}
-            onChange={(e) => setSelectedQuestId(e.target.value)}
-            className="border rounded-md p-2 mr-2"
-          >
-            <option value="">Select Quest</option>
-            {quests.map((quest) => (
-              <option key={quest.quest_id} value={quest.quest_id}>
-                {quest.name}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={assignQuestToUser}
-            className="bg-purple-500 text-white p-2 rounded-md"
-          >
-            Assign Quest
-          </button>
-        </div>
+          </ul>
+        ) : (
+          <p>No users with quests found.</p>
+        )}
       </div>
     </div>
   );
