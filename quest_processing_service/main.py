@@ -55,3 +55,4 @@ def create_user_quest(user_id: str, quest_id: str):
         return {"message": "Quest already exists for user"}
     user_quests_db[quest_key] = UserQuest(user_id=user_id, quest_id=quest_id).dict()
     return {"message": "User quest created", "quest_key": quest_key}
+

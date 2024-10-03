@@ -1,16 +1,22 @@
 import sqlite3
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from typing import List
+from pydantic import BaseModel
 
 # SQLite database connection
 conn = sqlite3.connect("rewards_system.db", check_same_thread=False)
 cursor = conn.cursor()
 
+
 def get_db():
-    conn = sqlite3.connect('rewards_system.db')
+    conn = sqlite3.connect("rewards_system.db")
     try:
         yield conn
     finally:
         conn.close()
+
 
 # Create Users table
 cursor.execute(
@@ -73,18 +79,95 @@ conn.commit()
 # FastAPI app
 app = FastAPI()
 
+# CORS settings
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-from fastapi.responses import JSONResponse
-from sqlite3 import IntegrityError
+
+# Define Pydantic models
+class User(BaseModel):
+    user_id: int
+    user_name: str
+    gold: int
+    diamond: int
+    status: int
+
+
+class UserCreate(BaseModel):
+    user_name: str
+    status: int
+
+
+class Quest(BaseModel):
+    quest_id: int
+    reward_id: int
+    auto_claim: bool
+    streak: int
+    duplication: int
+    name: str
+    description: str
+
+
+class QuestCreate(BaseModel):  # New model for quest creation
+    reward_id: int
+    auto_claim: bool
+    streak: int
+    duplication: int
+    name: str
+    description: str
+
+
+# Get Users endpoint
+@app.get("/users/", response_model=List[User])
+def get_users(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM Users")
+    users = cursor.fetchall()
+    return [
+        {
+            "user_id": user[0],
+            "user_name": user[1],
+            "gold": user[2],
+            "diamond": user[3],
+            "status": user[4],
+        }
+        for user in users
+    ]
+
+
+# Get Quests endpoint
+@app.get("/quests/", response_model=List[Quest])
+def get_quests(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM Quests")
+    quests = cursor.fetchall()
+    return [
+        {
+            "quest_id": quest[0],
+            "reward_id": quest[1],
+            "auto_claim": quest[2],
+            "streak": quest[3],
+            "duplication": quest[4],
+            "name": quest[5],
+            "description": quest[6],
+        }
+        for quest in quests
+    ]
 
 
 # Create User endpoint
 @app.post("/users/")
-def create_user(user_name: str, status: int, db: sqlite3.Connection = Depends(get_db)):
+def create_user(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
     try:
         cursor = db.cursor()
         cursor.execute(
-            "INSERT INTO Users (user_name, status) VALUES (?, ?)", (user_name, status)
+            "INSERT INTO Users (user_name, status) VALUES (?, ?)",
+            (user.user_name, user.status),
         )
         db.commit()
         return {"message": "User created successfully"}
@@ -100,15 +183,8 @@ def create_user(user_name: str, status: int, db: sqlite3.Connection = Depends(ge
 
 # Create Quest endpoint
 @app.post("/quests/")
-def create_quest(
-    reward_id: int,
-    auto_claim: bool,
-    streak: int,
-    duplication: int,
-    name: str,
-    description: str,
-    db: sqlite3.Connection = Depends(get_db),
-):
+def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
+    print("Received quest data:", quest)  # Use the new model
     try:
         cursor = db.cursor()
         cursor.execute(
@@ -116,7 +192,14 @@ def create_quest(
         INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-            (reward_id, auto_claim, streak, duplication, name, description),
+            (
+                quest.reward_id,
+                quest.auto_claim,
+                quest.streak,
+                quest.duplication,
+                quest.name,
+                quest.description,
+            ),
         )
         db.commit()
         return {"message": "Quest created successfully"}
@@ -183,6 +266,40 @@ def create_user_quest_reward(
         return JSONResponse(
             status_code=500, content={"message": "Internal server error: " + str(e)}
         )
+
+
+# Get Quests with Rewards endpoint
+@app.get("/quests-with-rewards/")
+def get_quests_with_rewards(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        SELECT q.quest_id, q.reward_id, q.auto_claim, q.streak, q.duplication, q.name, q.description, 
+               r.reward_name, r.reward_item, r.reward_qty 
+        FROM Quests q
+        LEFT JOIN Rewards r ON q.reward_id = r.reward_id
+    """
+    )
+    quests_with_rewards = cursor.fetchall()
+
+    quests = []
+    for quest in quests_with_rewards:
+        quests.append(
+            {
+                "quest_id": quest[0],
+                "reward_id": quest[1],
+                "auto_claim": quest[2],
+                "streak": quest[3],
+                "duplication": quest[4],
+                "name": quest[5],
+                "description": quest[6],
+                "reward_name": quest[7],
+                "reward_item": quest[8],
+                "reward_qty": quest[9],
+            }
+        )
+
+    return quests
 
 
 if __name__ == "__main__":
