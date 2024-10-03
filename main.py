@@ -67,14 +67,26 @@ conn.commit()
 app = FastAPI()
 
 
+from fastapi.responses import JSONResponse
+from sqlite3 import IntegrityError
+
+
 @app.post("/users/")
 def create_user(user_name: str, status: int):
-    cursor.execute(
-        "INSERT INTO Users (user_name, status) VALUES (?, ?)", (user_name, status)
-    )
-    conn.commit()
-    return {"message": "User created successfully"}
-
+    try:
+        cursor.execute(
+            "INSERT INTO Users (user_name, status) VALUES (?, ?)", (user_name, status)
+        )
+        conn.commit()
+        return {"message": "User created successfully"}
+    except IntegrityError as e:
+        return JSONResponse(
+            status_code=400, content={"message": "Integrity error: " + str(e)}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"message": "Internal server error: " + str(e)}
+        )
 
 @app.post("/quests/")
 def create_quest(
