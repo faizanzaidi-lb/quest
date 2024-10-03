@@ -2,8 +2,15 @@ import sqlite3
 from fastapi import FastAPI
 
 # SQLite database connection
-conn = sqlite3.connect("rewards_system.db")
+conn = sqlite3.connect("rewards_system.db", check_same_thread=False)
 cursor = conn.cursor()
+
+def get_db():
+    conn = sqlite3.connect('rewards_system.db')
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 # Create Users table
 cursor.execute(
@@ -72,14 +79,15 @@ from sqlite3 import IntegrityError
 
 
 @app.post("/users/")
-def create_user(user_name: str, status: int):
+def create_user(user_name: str, status: int, db: sqlite3.Connection = Depends(get_db)):
     try:
+        cursor = db.cursor()
         cursor.execute(
             "INSERT INTO Users (user_name, status) VALUES (?, ?)", (user_name, status)
         )
-        conn.commit()
+        db.commit()
         return {"message": "User created successfully"}
-    except IntegrityError as e:
+    except sqlite3.IntegrityError as e:
         return JSONResponse(
             status_code=400, content={"message": "Integrity error: " + str(e)}
         )
@@ -87,6 +95,7 @@ def create_user(user_name: str, status: int):
         return JSONResponse(
             status_code=500, content={"message": "Internal server error: " + str(e)}
         )
+
 
 @app.post("/quests/")
 def create_quest(
