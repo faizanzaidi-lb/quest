@@ -4,21 +4,26 @@ import axios from "axios";
 const App = () => {
   const [users, setUsers] = useState([]);
   const [quests, setQuests] = useState([]);
-  const [questsWithRewards, setQuestsWithRewards] = useState([]); // New state for quests with rewards
+  const [rewards, setRewards] = useState([]);
   const [userName, setUserName] = useState("");
   const [userStatus, setUserStatus] = useState("");
   const [questName, setQuestName] = useState("");
   const [questDescription, setQuestDescription] = useState("");
-  const [rewardId, setRewardId] = useState("");
+  const [rewardName, setRewardName] = useState(""); // State for reward name
+  const [rewardItem, setRewardItem] = useState(""); // State for reward item
+  const [rewardQty, setRewardQty] = useState(1); // State for reward quantity
+  const [selectedRewardId, setSelectedRewardId] = useState(""); // To manage selected reward
   const [autoClaim, setAutoClaim] = useState(false);
   const [streak, setStreak] = useState(0);
   const [duplication, setDuplication] = useState(0);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedQuestId, setSelectedQuestId] = useState("");
 
-  // Fetch users, quests, and quests with rewards when component mounts
+  // Fetch users, quests, and rewards when component mounts
   useEffect(() => {
     fetchUsers();
     fetchQuests();
-    fetchQuestsWithRewards(); // Fetch quests with rewards
+    fetchRewards();
   }, []);
 
   const axiosInstance = axios.create({
@@ -28,11 +33,7 @@ const App = () => {
   const fetchUsers = async () => {
     try {
       const response = await axiosInstance.get("/users");
-      if (Array.isArray(response.data)) {
-        setUsers(response.data);
-      } else {
-        console.error("Unexpected response format:", response.data);
-      }
+      setUsers(response.data);
     } catch (error) {
       console.error("Error fetching users:", error);
     }
@@ -41,26 +42,18 @@ const App = () => {
   const fetchQuests = async () => {
     try {
       const response = await axiosInstance.get("/quests");
-      if (Array.isArray(response.data)) {
-        setQuests(response.data);
-      } else {
-        console.error("Unexpected response format:", response.data);
-      }
+      setQuests(response.data);
     } catch (error) {
       console.error("Error fetching quests:", error);
     }
   };
 
-  const fetchQuestsWithRewards = async () => {
+  const fetchRewards = async () => {
     try {
-      const response = await axiosInstance.get("/quests-with-rewards"); // Fetch quests with rewards
-      if (Array.isArray(response.data)) {
-        setQuestsWithRewards(response.data);
-      } else {
-        console.error("Unexpected response format:", response.data);
-      }
+      const response = await axiosInstance.get("/rewards");
+      setRewards(response.data);
     } catch (error) {
-      console.error("Error fetching quests with rewards:", error);
+      console.error("Error fetching rewards:", error);
     }
   };
 
@@ -81,7 +74,7 @@ const App = () => {
   const addQuest = async () => {
     try {
       await axiosInstance.post("/quests", {
-        reward_id: parseInt(rewardId),
+        reward_id: parseInt(selectedRewardId), // Using selectedRewardId here
         auto_claim: autoClaim,
         streak: parseInt(streak),
         duplication: parseInt(duplication),
@@ -90,20 +83,52 @@ const App = () => {
       });
       setQuestName("");
       setQuestDescription("");
-      setRewardId("");
+      setSelectedRewardId(""); // Reset selected reward ID
       setAutoClaim(false);
       setStreak(0);
       setDuplication(0);
       fetchQuests();
-      fetchQuestsWithRewards(); // Re-fetch quests with rewards after adding a new quest
     } catch (error) {
       console.error("Error adding quest:", error);
     }
   };
 
+  const addReward = async () => {
+    try {
+      await axiosInstance.post("/rewards", {
+        reward_name: rewardName, // Send reward name to backend
+        reward_item: rewardItem, // Send reward item to backend
+        reward_qty: parseInt(rewardQty), // Send reward quantity to backend
+      });
+      setRewardName(""); // Reset reward name
+      setRewardItem(""); // Reset reward item
+      setRewardQty(1); // Reset reward quantity
+      fetchRewards(); // Fetch rewards to update the list
+    } catch (error) {
+      console.error("Error adding reward:", error);
+    }
+  };
+
+  const assignQuestToUser = async () => {
+    try {
+      await axiosInstance.post("/assign-quest", {
+        user_id: parseInt(selectedUserId),
+        quest_id: parseInt(selectedQuestId),
+        status: "assigned",
+      });
+      setSelectedUserId("");
+      setSelectedQuestId("");
+      console.log("Quest assigned successfully");
+    } catch (error) {
+      console.error("Error assigning quest:", error);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6">User and Quest Management</h1>
+      <h1 className="text-3xl font-bold mb-6">
+        User, Reward, and Quest Management
+      </h1>
 
       {/* Users Section */}
       <div className="mb-10">
@@ -143,6 +168,52 @@ const App = () => {
         )}
       </div>
 
+      {/* Rewards Section */}
+      <div className="mb-10">
+        <h2 className="text-2xl font-semibold mb-4">Rewards</h2>
+        <div className="mb-4">
+          <input
+            type="text"
+            value={rewardName}
+            onChange={(e) => setRewardName(e.target.value)}
+            placeholder="Reward Name"
+            className="border rounded-md p-2 mr-2"
+          />
+          <input
+            type="text"
+            value={rewardItem}
+            onChange={(e) => setRewardItem(e.target.value)}
+            placeholder="Reward Item"
+            className="border rounded-md p-2 mr-2"
+          />
+          <input
+            type="number"
+            value={rewardQty}
+            onChange={(e) => setRewardQty(e.target.value)}
+            placeholder="Reward Quantity"
+            className="border rounded-md p-2 mr-2"
+          />
+          <button
+            onClick={addReward}
+            className="bg-green-500 text-white p-2 rounded-md"
+          >
+            Add Reward
+          </button>
+        </div>
+        {rewards.length > 0 ? (
+          <ul className="list-disc pl-5">
+            {rewards.map((reward) => (
+              <li key={reward.reward_id} className="mb-1">
+                {reward.reward_name} (Item: {reward.reward_item}, Quantity:{" "}
+                {reward.reward_qty}, ID: {reward.reward_id})
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No rewards found.</p>
+        )}
+      </div>
+
       {/* Quests Section */}
       <div className="mb-10">
         <h2 className="text-2xl font-semibold mb-4">Quests</h2>
@@ -161,13 +232,22 @@ const App = () => {
             placeholder="Quest Description"
             className="border rounded-md p-2 mr-2"
           />
-          <input
-            type="text"
-            value={rewardId}
-            onChange={(e) => setRewardId(e.target.value)}
-            placeholder="Reward ID"
+
+          {/* Reward ID Dropdown */}
+          <select
+            value={selectedRewardId}
+            onChange={(e) => setSelectedRewardId(e.target.value)}
             className="border rounded-md p-2 mr-2"
-          />
+          >
+            <option value="">Select Reward</option>
+            {rewards.map((reward) => (
+              <option key={reward.reward_id} value={reward.reward_id}>
+                {reward.reward_name} (Item: {reward.reward_item}, ID:{" "}
+                {reward.reward_id})
+              </option>
+            ))}
+          </select>
+
           <input
             type="checkbox"
             checked={autoClaim}
@@ -191,7 +271,7 @@ const App = () => {
           />
           <button
             onClick={addQuest}
-            className="bg-green-500 text-white p-2 rounded-md"
+            className="bg-yellow-500 text-white p-2 rounded-md"
           >
             Add Quest
           </button>
@@ -200,7 +280,8 @@ const App = () => {
           <ul className="list-disc pl-5">
             {quests.map((quest) => (
               <li key={quest.quest_id} className="mb-1">
-                {quest.name} (Description: {quest.description})
+                {quest.name} (ID: {quest.quest_id}, Reward ID: {quest.reward_id}
+                )
               </li>
             ))}
           </ul>
@@ -209,43 +290,41 @@ const App = () => {
         )}
       </div>
 
-      {/* Quests with Rewards Section */}
-      <div>
-        <h2 className="text-2xl font-semibold mb-4">Quests with Rewards</h2>
-        {questsWithRewards.length > 0 ? (
-          <table className="min-w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 p-2">Quest Name</th>
-                <th className="border border-gray-300 p-2">Description</th>
-                <th className="border border-gray-300 p-2">Reward Name</th>
-                <th className="border border-gray-300 p-2">Reward Item</th>
-                <th className="border border-gray-300 p-2">Reward Quantity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {questsWithRewards.map((quest) => (
-                <tr key={quest.quest_id}>
-                  <td className="border border-gray-300 p-2">{quest.name}</td>
-                  <td className="border border-gray-300 p-2">
-                    {quest.description}
-                  </td>
-                  <td className="border border-gray-300 p-2">
-                    {quest.reward_name}
-                  </td>
-                  <td className="border border-gray-300 p-2">
-                    {quest.reward_item}
-                  </td>
-                  <td className="border border-gray-300 p-2">
-                    {quest.reward_qty}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p>No quests with rewards found.</p>
-        )}
+      {/* Assign Quest to User Section */}
+      <div className="mb-10">
+        <h2 className="text-2xl font-semibold mb-4">Assign Quest to User</h2>
+        <div className="mb-4">
+          <select
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            className="border rounded-md p-2 mr-2"
+          >
+            <option value="">Select User</option>
+            {users.map((user) => (
+              <option key={user.user_id} value={user.user_id}>
+                {user.user_name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedQuestId}
+            onChange={(e) => setSelectedQuestId(e.target.value)}
+            className="border rounded-md p-2 mr-2"
+          >
+            <option value="">Select Quest</option>
+            {quests.map((quest) => (
+              <option key={quest.quest_id} value={quest.quest_id}>
+                {quest.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={assignQuestToUser}
+            className="bg-purple-500 text-white p-2 rounded-md"
+          >
+            Assign Quest
+          </button>
+        </div>
       </div>
     </div>
   );
