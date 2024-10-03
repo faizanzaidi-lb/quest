@@ -1,5 +1,5 @@
 import sqlite3
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 
 # SQLite database connection
 conn = sqlite3.connect("rewards_system.db", check_same_thread=False)
