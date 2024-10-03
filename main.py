@@ -78,6 +78,7 @@ from fastapi.responses import JSONResponse
 from sqlite3 import IntegrityError
 
 
+# Create User endpoint
 @app.post("/users/")
 def create_user(user_name: str, status: int, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -97,6 +98,7 @@ def create_user(user_name: str, status: int, db: sqlite3.Connection = Depends(ge
         )
 
 
+# Create Quest endpoint
 @app.post("/quests/")
 def create_quest(
     reward_id: int,
@@ -105,42 +107,82 @@ def create_quest(
     duplication: int,
     name: str,
     description: str,
+    db: sqlite3.Connection = Depends(get_db),
 ):
-    cursor.execute(
-        """
-    INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """,
-        (reward_id, auto_claim, streak, duplication, name, description),
-    )
-    conn.commit()
-    return {"message": "Quest created successfully"}
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+        INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+            (reward_id, auto_claim, streak, duplication, name, description),
+        )
+        db.commit()
+        return {"message": "Quest created successfully"}
+    except sqlite3.IntegrityError as e:
+        return JSONResponse(
+            status_code=400, content={"message": "Integrity error: " + str(e)}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"message": "Internal server error: " + str(e)}
+        )
 
 
+# Create Reward endpoint
 @app.post("/rewards/")
-def create_reward(reward_name: str, reward_item: str, reward_qty: int):
-    cursor.execute(
-        """
-    INSERT INTO Rewards (reward_name, reward_item, reward_qty)
-    VALUES (?, ?, ?)
-    """,
-        (reward_name, reward_item, reward_qty),
-    )
-    conn.commit()
-    return {"message": "Reward created successfully"}
+def create_reward(
+    reward_name: str,
+    reward_item: str,
+    reward_qty: int,
+    db: sqlite3.Connection = Depends(get_db),
+):
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+        INSERT INTO Rewards (reward_name, reward_item, reward_qty)
+        VALUES (?, ?, ?)
+        """,
+            (reward_name, reward_item, reward_qty),
+        )
+        db.commit()
+        return {"message": "Reward created successfully"}
+    except sqlite3.IntegrityError as e:
+        return JSONResponse(
+            status_code=400, content={"message": "Integrity error: " + str(e)}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"message": "Internal server error: " + str(e)}
+        )
 
 
+# Create User-Quest-Reward endpoint
 @app.post("/user-quest-rewards/")
-def create_user_quest_reward(user_id: int, quest_id: int, status: str):
-    cursor.execute(
-        """
-    INSERT INTO User_Quest_Rewards (user_id, quest_id, status)
-    VALUES (?, ?, ?)
-    """,
-        (user_id, quest_id, status),
-    )
-    conn.commit()
-    return {"message": "User quest reward created successfully"}
+def create_user_quest_reward(
+    user_id: int, quest_id: int, status: str, db: sqlite3.Connection = Depends(get_db)
+):
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+        INSERT INTO User_Quest_Rewards (user_id, quest_id, status)
+        VALUES (?, ?, ?)
+        """,
+            (user_id, quest_id, status),
+        )
+        db.commit()
+        return {"message": "User quest reward created successfully"}
+    except sqlite3.IntegrityError as e:
+        return JSONResponse(
+            status_code=400, content={"message": "Integrity error: " + str(e)}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, content={"message": "Internal server error: " + str(e)}
+        )
 
 
 if __name__ == "__main__":
