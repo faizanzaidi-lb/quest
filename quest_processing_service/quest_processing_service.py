@@ -144,7 +144,7 @@ def sign_in(user_id: int, db: sqlite3.Connection = Depends(get_db)):
                 WHERE user_id = ?
                 """, (user_id,)
             )
-            reward = {"user_id": user_id, "quest_id": 1, "status": "completed", "diamonds": 10, "gold": 0}
+            reward = {"user_id": user_id, "quest_id": 1, "status": "completed", "diamonds": 10, "gold": 20}  # Keep gold as 20
         else:
             reward = {"user_id": user_id, "quest_id": 1, "status": f"progress: {sign_in_count}/3", "diamonds": 0, "gold": 0}
 
