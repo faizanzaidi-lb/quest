@@ -5,10 +5,8 @@ from fastapi.responses import JSONResponse
 from typing import List
 from pydantic import BaseModel
 
-# Create FastAPI app
 app = FastAPI()
 
-# CORS settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,9 +14,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# SQLite database connection
 def get_db():
     conn = sqlite3.connect("rewards_system.db", check_same_thread=False)
     try:
@@ -26,8 +21,6 @@ def get_db():
     finally:
         conn.close()
 
-
-# Create tables if they don't exist
 def init_db():
     conn = sqlite3.connect("rewards_system.db")
     cursor = conn.cursor()
@@ -82,12 +75,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-
-# Call to initialize the database
 init_db()
 
-
-# Define Pydantic models
 class User(BaseModel):
     user_id: int
     user_name: str
@@ -139,7 +128,6 @@ class UserQuestReward(BaseModel):
     status: str
 
 
-# Get Users endpoint
 @app.get("/users/", response_model=List[User])
 def get_users(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -156,8 +144,6 @@ def get_users(db: sqlite3.Connection = Depends(get_db)):
         for user in users
     ]
 
-
-# Create User endpoint
 @app.post("/users/", response_model=User)
 def create_user(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -175,14 +161,10 @@ def create_user(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
             "diamond": 0,  # Default value for diamond
             "status": user.status,
         }
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
     except Exception as e:
         print(f"Error occurred while creating user: {e}")  # Log the error
         raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
 
-
-# Get Quests endpoint
 @app.get("/quests/", response_model=List[Quest])
 def get_quests(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -201,8 +183,6 @@ def get_quests(db: sqlite3.Connection = Depends(get_db)):
         for quest in quests
     ]
 
-
-# Create Quest endpoint
 @app.post("/quests/", response_model=Quest)
 def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -224,14 +204,10 @@ def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
         db.commit()
         quest_id = cursor.lastrowid
         return {**quest.dict(), "quest_id": quest_id}
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
     except Exception as e:
         print(f"Error occurred while fetching quests: {e}")  # Log the error
         raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
 
-
-# Get Rewards endpoint
 @app.get("/rewards/")
 def get_rewards(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -251,8 +227,6 @@ def get_rewards(db: sqlite3.Connection = Depends(get_db)):
         print(f"Error occurred while fetching rewards: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-# Create Reward endpoint
 @app.post("/rewards/", response_model=Reward)
 def create_reward(reward: RewardCreate, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -267,13 +241,9 @@ def create_reward(reward: RewardCreate, db: sqlite3.Connection = Depends(get_db)
         db.commit()
         reward_id = cursor.lastrowid
         return {**reward.dict(), "reward_id": reward_id}
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
 
-
-# Assign Quest to User endpoint
 @app.post("/user-quest-rewards/")
 def create_user_quest_reward(
     user_quest_reward: UserQuestReward, db: sqlite3.Connection = Depends(get_db)
@@ -293,13 +263,9 @@ def create_user_quest_reward(
         )
         db.commit()
         return {"message": "User quest reward created successfully"}
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
 
-
-# Get Quests with Rewards endpoint
 @app.get("/quests-with-rewards/")
 def get_quests_with_rewards(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -337,8 +303,6 @@ class AssignQuest(BaseModel):
     quest_id: int
     status: str
 
-
-# Assign Quest endpoint
 @app.post("/assign-quest/")
 def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -352,15 +316,12 @@ def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get
         )
         db.commit()
         return {"message": "Quest assigned successfully"}
-    except sqlite3.IntegrityError as e:
-        return JSONResponse(
-            status_code=400, content={"message": "Integrity error: " + str(e)}
-        )
+    
     except Exception as e:
         return JSONResponse(
             status_code=500, content={"message": "Internal server error: " + str(e)}
         )
-# Get User Quests endpoint
+        
 @app.get("/user-quests/{user_id}/")
 def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -383,21 +344,17 @@ def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         for quest in user_quests
     ]
 
-
 @app.get("/users-with-quests")
 def get_users_with_quests(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
 
-    # Fetch all users
     cursor.execute("SELECT user_id, user_name, status FROM Users")
     users = cursor.fetchall()
 
-    # Prepare the result
     result = []
     for user in users:
         user_id, user_name, status = user
 
-        # Fetch quests for the current user
         cursor.execute(
             """
             SELECT uq.quest_id, q.name, uq.status
@@ -409,7 +366,6 @@ def get_users_with_quests(db: sqlite3.Connection = Depends(get_db)):
         )
         user_quests = cursor.fetchall()
 
-        # Create a list of quests for the current user
         quests_list = [
             {
                 "quest_id": quest[0],
@@ -419,7 +375,6 @@ def get_users_with_quests(db: sqlite3.Connection = Depends(get_db)):
             for quest in user_quests
         ]
 
-        # Append user info and quests to the result
         result.append(
             {
                 "user_id": user_id,
@@ -431,8 +386,6 @@ def get_users_with_quests(db: sqlite3.Connection = Depends(get_db)):
 
     return result
 
-
-# Run the app
 if __name__ == "__main__":
     import uvicorn
 
