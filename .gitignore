@@ -14,6 +14,8 @@ __pycache__/
 */env
 */__pycache__
 
+*.db
+
 node_modules
 */node_modules
 dist
