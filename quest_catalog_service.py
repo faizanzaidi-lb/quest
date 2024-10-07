@@ -1,14 +1,24 @@
 # quest_catalog_service.py
 
 import sqlite3
-from fastapi import FastAPI, HTTPException, Depends
-from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List
 
 app = FastAPI()
 
+# Configure CORS as needed
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Database initialization
+
+# Database Dependency
 def get_db():
     conn = sqlite3.connect("quest_catalog.db", check_same_thread=False)
     try:
@@ -17,6 +27,7 @@ def get_db():
         conn.close()
 
 
+# Initialize Database
 def init_db():
     conn = sqlite3.connect("quest_catalog.db")
     cursor = conn.cursor()
@@ -40,10 +51,10 @@ def init_db():
 init_db()
 
 
-# Pydantic models
+# Pydantic Models
 class Quest(BaseModel):
     quest_id: int
-    reward_id: Optional[int]
+    reward_id: int
     auto_claim: bool
     streak: int
     duplication: int
@@ -52,21 +63,12 @@ class Quest(BaseModel):
 
 
 class QuestCreate(BaseModel):
-    reward_id: Optional[int]
+    reward_id: int
     auto_claim: bool
     streak: int
     duplication: int
     name: str
     description: str
-
-
-class QuestUpdate(BaseModel):
-    reward_id: Optional[int] = None
-    auto_claim: Optional[bool] = None
-    streak: Optional[int] = None
-    duplication: Optional[int] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
 
 
 # Routes
@@ -89,7 +91,32 @@ def get_quests(db: sqlite3.Connection = Depends(get_db)):
     ]
 
 
-@app.get("/quests/{quest_id}/", response_model=Quest)
+@app.post("/quests/", response_model=Quest)
+def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                quest.reward_id,
+                quest.auto_claim,
+                quest.streak,
+                quest.duplication,
+                quest.name,
+                quest.description,
+            ),
+        )
+        db.commit()
+        quest_id = cursor.lastrowid
+        return {**quest.dict(), "quest_id": quest_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/quests/{quest_id}", response_model=Quest)
 def get_quest(quest_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute("SELECT * FROM Quests WHERE quest_id = ?", (quest_id,))
@@ -104,73 +131,11 @@ def get_quest(quest_id: int, db: sqlite3.Connection = Depends(get_db)):
             "name": quest[5],
             "description": quest[6],
         }
-    raise HTTPException(status_code=404, detail="Quest not found")
-
-
-@app.post("/quests/", response_model=Quest)
-def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                quest.reward_id,
-                int(quest.auto_claim),
-                quest.streak,
-                quest.duplication,
-                quest.name,
-                quest.description,
-            ),
-        )
-        db.commit()
-        quest_id = cursor.lastrowid
-        return {**quest.dict(), "quest_id": quest_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
-
-
-@app.put("/quests/{quest_id}/", response_model=Quest)
-def update_quest(
-    quest_id: int, quest: QuestUpdate, db: sqlite3.Connection = Depends(get_db)
-):
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM Quests WHERE quest_id = ?", (quest_id,))
-    existing_quest = cursor.fetchone()
-    if not existing_quest:
+    else:
         raise HTTPException(status_code=404, detail="Quest not found")
 
-    update_data = quest.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        if key == "auto_claim":
-            value = int(value)
-        cursor.execute(
-            f"UPDATE Quests SET {key} = ? WHERE quest_id = ?", (value, quest_id)
-        )
-    db.commit()
 
-    cursor.execute("SELECT * FROM Quests WHERE quest_id = ?", (quest_id,))
-    updated_quest = cursor.fetchone()
-    return {
-        "quest_id": updated_quest[0],
-        "reward_id": updated_quest[1],
-        "auto_claim": bool(updated_quest[2]),
-        "streak": updated_quest[3],
-        "duplication": updated_quest[4],
-        "name": updated_quest[5],
-        "description": updated_quest[6],
-    }
+if __name__ == "__main__":
+    import uvicorn
 
-
-@app.delete("/quests/{quest_id}/")
-def delete_quest(quest_id: int, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM Quests WHERE quest_id = ?", (quest_id,))
-    quest = cursor.fetchone()
-    if not quest:
-        raise HTTPException(status_code=404, detail="Quest not found")
-    cursor.execute("DELETE FROM Quests WHERE quest_id = ?", (quest_id,))
-    db.commit()
-    return {"message": "Quest deleted successfully"}
+    uvicorn.run(app, host="0.0.0.0", port=8002)

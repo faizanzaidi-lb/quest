@@ -1,67 +1,87 @@
+// src/App.jsx
+
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-const App = () => {
-  // State variables
-  const [users, setUsers] = useState([]);
-  const [quests, setQuests] = useState([]);
-  const [rewards, setRewards] = useState([]);
-  const [userName, setUserName] = useState("");
-  const [userStatus, setUserStatus] = useState("");
-  const [questName, setQuestName] = useState("");
-  const [questDescription, setQuestDescription] = useState("");
-  const [rewardName, setRewardName] = useState("");
-  const [rewardItem, setRewardItem] = useState("");
-  const [rewardQty, setRewardQty] = useState(1);
-  const [selectedRewardId, setSelectedRewardId] = useState("");
-  const [autoClaim, setAutoClaim] = useState(false);
-  const [streak, setStreak] = useState(0);
-  const [duplication, setDuplication] = useState(0);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedQuestId, setSelectedQuestId] = useState("");
-  const [usersWithQuests, setUsersWithQuests] = useState([]);
-  const [signupUsername, setSignupUsername] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [authToken, setAuthToken] = useState(null);
-  const [loggedInUser, setLoggedInUser] = useState(null);
+function App() {
+  // Base URL for API Gateway
+  const API_BASE = "http://localhost:8000";
 
-  // Create Axios instance with interceptors to include auth token
+  // State variables
+  const [signupData, setSignupData] = useState({
+    user_name: "",
+    password: "",
+    status: "new",
+  });
+  const [loginData, setLoginData] = useState({ user_name: "", password: "" });
+  const [token, setToken] = useState(localStorage.getItem("token") || "");
+  const [user, setUser] = useState(null);
+  const [quests, setQuests] = useState([]);
+  const [assignQuestData, setAssignQuestData] = useState({ quest_id: "" });
+  const [userQuests, setUserQuests] = useState([]);
+
+  // Axios instance with Authorization header
   const axiosInstance = axios.create({
-    baseURL: "http://localhost:8000", // Corrected API Gateway's base URL
+    baseURL: API_BASE,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
 
-  axiosInstance.interceptors.request.use(
-    (config) => {
-      if (authToken) {
-        config.headers["Authorization"] = `Bearer ${authToken}`;
-      }
-      return config;
-    },
-    (error) => {
-      return Promise.reject(error);
-    }
-  );
-
-  // Fetch data on component mount
+  // Fetch user details after login/signup
   useEffect(() => {
-    if (authToken) {
-      fetchCurrentUser(authToken);
+    if (token) {
+      // Decode token to get user_id (assuming JWT)
+      const decodeToken = (token) => {
+        try {
+          const payload = token.split(".")[1];
+          return JSON.parse(atob(payload));
+        } catch (e) {
+          return null;
+        }
+      };
+      const decoded = decodeToken(token);
+      if (decoded && decoded.user_id) {
+        fetchUser(decoded.user_id);
+      }
     }
-    fetchUsers();
-    fetchQuests();
-    fetchRewards();
-    fetchUsersWithQuests();
-  }, [authToken]); // Re-fetch data when authToken changes
+  }, [token]);
 
-  // Fetch functions
-  const fetchUsers = async () => {
+  const fetchUser = async (user_id) => {
     try {
-      const response = await axiosInstance.get("/users/");
-      setUsers(response.data);
+      const response = await axios.get(`${API_BASE}/users/${user_id}`);
+      setUser(response.data);
     } catch (error) {
-      console.error("Error fetching users:", error);
+      console.error(
+        "Error fetching user:",
+        error.response?.data || error.message
+      );
+    }
+  };
+
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await axios.post(`${API_BASE}/signup`, signupData);
+      setToken(response.data.access_token);
+      localStorage.setItem("token", response.data.access_token);
+      alert("Signup successful!");
+    } catch (error) {
+      console.error("Signup error:", error.response?.data || error.message);
+      alert(`Signup failed: ${error.response?.data.detail || error.message}`);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await axios.post(`${API_BASE}/login`, loginData);
+      setToken(response.data.access_token);
+      localStorage.setItem("token", response.data.access_token);
+      alert("Login successful!");
+    } catch (error) {
+      console.error("Login error:", error.response?.data || error.message);
+      alert(`Login failed: ${error.response?.data.detail || error.message}`);
     }
   };
 
@@ -70,382 +90,341 @@ const App = () => {
       const response = await axiosInstance.get("/quests/");
       setQuests(response.data);
     } catch (error) {
-      console.error("Error fetching quests:", error);
-    }
-  };
-
-  const fetchRewards = async () => {
-    try {
-      const response = await axiosInstance.get("/rewards/");
-      setRewards(response.data);
-    } catch (error) {
-      console.error("Error fetching rewards:", error);
-    }
-  };
-
-  const fetchUsersWithQuests = async () => {
-    try {
-      const response = await axiosInstance.get("/users-with-quests");
-      setUsersWithQuests(response.data);
-    } catch (error) {
-      console.error("Error fetching users with quests:", error);
-    }
-  };
-
-  // Signup function
-  const signupUser = async () => {
-    try {
-      const response = await axiosInstance.post("/register/", {
-        username: signupUsername,
-        password: signupPassword,
-        status: 1, // Default status; adjust as needed
-      });
-      setSignupUsername("");
-      setSignupPassword("");
-      console.log("User signed up:", response.data);
-      alert("Signup successful! Please log in.");
-    } catch (error) {
-      console.error("Error signing up user:", error);
-      alert("Signup failed: " + error.response?.data?.detail || error.message);
-    }
-  };
-
-  // Login function
-  const loginUser = async () => {
-    try {
-      const response = await axiosInstance.post("/token", {
-        username: loginUsername,
-        password: loginPassword,
-      });
-      setLoginUsername("");
-      setLoginPassword("");
-      setAuthToken(response.data.access_token);
-      console.log("User logged in:", response.data);
-      alert("Login successful!");
-    } catch (error) {
-      console.error("Error logging in user:", error);
-      alert("Login failed: " + error.response?.data?.detail || error.message);
-    }
-  };
-
-  // Fetch current user info
-  const fetchCurrentUser = async (token) => {
-    try {
-      const response = await axiosInstance.get("/users/me/", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setLoggedInUser(response.data);
-    } catch (error) {
-      console.error("Error fetching current user:", error);
-    }
-  };
-
-  // Add User function
-  const addUser = async () => {
-    try {
-      await axiosInstance.post("/users/", {
-        user_name: userName,
-        status: parseInt(userStatus),
-      });
-      setUserName("");
-      setUserStatus("");
-      fetchUsers();
-    } catch (error) {
-      console.error("Error adding user:", error);
-      alert(
-        "Add user failed: " + error.response?.data?.detail || error.message
+      console.error(
+        "Error fetching quests:",
+        error.response?.data || error.message
       );
     }
   };
 
-  // Add Quest function
-  const addQuest = async () => {
-    try {
-      await axiosInstance.post("/quests/", {
-        reward_id: selectedRewardId ? parseInt(selectedRewardId) : null,
-        auto_claim: autoClaim,
-        streak: parseInt(streak),
-        duplication: parseInt(duplication),
-        name: questName,
-        description: questDescription,
-      });
-      setQuestName("");
-      setQuestDescription("");
-      setSelectedRewardId("");
-      setAutoClaim(false);
-      setStreak(0);
-      setDuplication(0);
-      fetchQuests();
-    } catch (error) {
-      console.error("Error adding quest:", error);
-      alert(
-        "Add quest failed: " + error.response?.data?.detail || error.message
-      );
+  const assignQuest = async (e) => {
+    e.preventDefault();
+    if (!user) {
+      alert("Please log in first.");
+      return;
     }
-  };
-
-  // Add Reward function
-  const addReward = async () => {
     try {
-      await axiosInstance.post("/rewards/", {
-        reward_name: rewardName,
-        reward_item: rewardItem,
-        reward_qty: parseInt(rewardQty),
-      });
-      setRewardName("");
-      setRewardItem("");
-      setRewardQty(1);
-      fetchRewards();
-    } catch (error) {
-      console.error("Error adding reward:", error);
-      alert(
-        "Add reward failed: " + error.response?.data?.detail || error.message
-      );
-    }
-  };
-
-  // Assign Quest to User function
-  const assignQuestToUser = async () => {
-    try {
-      await axiosInstance.post("/assign-quest/", {
-        user_id: parseInt(selectedUserId),
-        quest_id: parseInt(selectedQuestId),
-        status: "assigned",
-      });
-      setSelectedUserId("");
-      setSelectedQuestId("");
-      console.log("Quest assigned successfully");
+      const payload = {
+        user_id: user.user_id,
+        quest_id: parseInt(assignQuestData.quest_id),
+      };
+      await axiosInstance.post("/assign-quest/", payload);
       alert("Quest assigned successfully!");
-      fetchUsersWithQuests();
+      fetchUserQuests();
     } catch (error) {
-      console.error("Error assigning quest:", error);
+      console.error(
+        "Error assigning quest:",
+        error.response?.data || error.message
+      );
       alert(
-        "Assign quest failed: " + error.response?.data?.detail || error.message
+        `Assign quest failed: ${error.response?.data.detail || error.message}`
       );
     }
+  };
+
+  const fetchUserQuests = async () => {
+    if (!user) {
+      alert("Please log in first.");
+      return;
+    }
+    try {
+      const response = await axiosInstance.get(`/user-quests/${user.user_id}/`);
+      setUserQuests(response.data);
+    } catch (error) {
+      console.error(
+        "Error fetching user quests:",
+        error.response?.data || error.message
+      );
+    }
+  };
+
+  const completeQuest = async (quest_id) => {
+    if (!user) {
+      alert("Please log in first.");
+      return;
+    }
+    try {
+      const payload = {
+        user_id: user.user_id,
+        quest_id: quest_id,
+      };
+      await axiosInstance.post("/complete-quest/", payload);
+      alert("Quest completed successfully!");
+      fetchUserQuests();
+    } catch (error) {
+      console.error(
+        "Error completing quest:",
+        error.response?.data || error.message
+      );
+      alert(
+        `Complete quest failed: ${error.response?.data.detail || error.message}`
+      );
+    }
+  };
+
+  const handleLogout = () => {
+    setToken("");
+    localStorage.removeItem("token");
+    setUser(null);
+    setUserQuests([]);
+    alert("Logged out successfully!");
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6">
-        User, Reward, Quest, Signup, and Login Management
-      </h1>
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-center mb-6">
+          Gamification Platform Test
+        </h1>
 
-      {/* Signup Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Signup</h2>
-        <input
-          type="text"
-          value={signupUsername}
-          onChange={(e) => setSignupUsername(e.target.value)}
-          placeholder="Username"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="password"
-          value={signupPassword}
-          onChange={(e) => setSignupPassword(e.target.value)}
-          placeholder="Password"
-          className="border rounded-md p-2 mr-2"
-        />
-        <button
-          onClick={signupUser}
-          className="bg-blue-500 text-white p-2 rounded-md"
-        >
-          Sign Up
-        </button>
-      </div>
+        {/* Signup and Login Forms */}
+        {!token ? (
+          <div className="flex flex-col md:flex-row justify-between mb-8">
+            {/* Signup Form */}
+            <form
+              onSubmit={handleSignup}
+              className="bg-white p-6 rounded shadow-md mb-4 md:mb-0 md:mr-4 w-full"
+            >
+              <h2 className="text-xl font-semibold mb-4">Sign Up</h2>
+              <div className="mb-3">
+                <label className="block mb-1">Username</label>
+                <input
+                  type="text"
+                  required
+                  value={signupData.user_name}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, user_name: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <label className="block mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={signupData.password}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, password: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <label className="block mb-1">Status</label>
+                <select
+                  value={signupData.status}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, status: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="new">New</option>
+                  <option value="not_new">Not New</option>
+                  <option value="banned">Banned</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
+              >
+                Sign Up
+              </button>
+            </form>
 
-      {/* Login Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Login</h2>
-        <input
-          type="text"
-          value={loginUsername}
-          onChange={(e) => setLoginUsername(e.target.value)}
-          placeholder="Username"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="password"
-          value={loginPassword}
-          onChange={(e) => setLoginPassword(e.target.value)}
-          placeholder="Password"
-          className="border rounded-md p-2 mr-2"
-        />
-        <button
-          onClick={loginUser}
-          className="bg-green-500 text-white p-2 rounded-md"
-        >
-          Log In
-        </button>
-      </div>
+            {/* Login Form */}
+            <form
+              onSubmit={handleLogin}
+              className="bg-white p-6 rounded shadow-md w-full"
+            >
+              <h2 className="text-xl font-semibold mb-4">Log In</h2>
+              <div className="mb-3">
+                <label className="block mb-1">Username</label>
+                <input
+                  type="text"
+                  required
+                  value={loginData.user_name}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, user_name: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <label className="block mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={loginData.password}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, password: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600"
+              >
+                Log In
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="mb-8 flex justify-between items-center bg-white p-6 rounded shadow-md">
+            <div>
+              <h2 className="text-xl font-semibold">
+                Welcome, {user?.user_name}!
+              </h2>
+              <p>
+                Gold: {user?.gold} | Diamonds: {user?.diamond} | Status:{" "}
+                {user?.status}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Log Out
+            </button>
+          </div>
+        )}
 
-      {/* User Management Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Add User</h2>
-        <input
-          type="text"
-          value={userName}
-          onChange={(e) => setUserName(e.target.value)}
-          placeholder="User Name"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="number"
-          value={userStatus}
-          onChange={(e) => setUserStatus(e.target.value)}
-          placeholder="User Status"
-          className="border rounded-md p-2 mr-2"
-        />
-        <button
-          onClick={addUser}
-          className="bg-purple-500 text-white p-2 rounded-md"
-        >
-          Add User
-        </button>
-      </div>
+        {/* Quests Section */}
+        {token && (
+          <div className="bg-white p-6 rounded shadow-md mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Available Quests</h2>
+            <button
+              onClick={fetchQuests}
+              className="mb-4 bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600"
+            >
+              Fetch Quests
+            </button>
+            {quests.length > 0 ? (
+              <table className="w-full table-auto">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="px-4 py-2">ID</th>
+                    <th className="px-4 py-2">Name</th>
+                    <th className="px-4 py-2">Description</th>
+                    <th className="px-4 py-2">Reward</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {quests.map((quest) => (
+                    <tr key={quest.quest_id} className="border-t">
+                      <td className="px-4 py-2">{quest.quest_id}</td>
+                      <td className="px-4 py-2">{quest.name}</td>
+                      <td className="px-4 py-2">{quest.description}</td>
+                      <td className="px-4 py-2">
+                        {quest.reward_name} - {quest.reward_qty}{" "}
+                        {quest.reward_item}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>No quests available. Click "Fetch Quests" to load quests.</p>
+            )}
+          </div>
+        )}
 
-      {/* Quest Management Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Add Quest</h2>
-        <input
-          type="text"
-          value={questName}
-          onChange={(e) => setQuestName(e.target.value)}
-          placeholder="Quest Name"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="text"
-          value={questDescription}
-          onChange={(e) => setQuestDescription(e.target.value)}
-          placeholder="Quest Description"
-          className="border rounded-md p-2 mr-2"
-        />
-        <select
-          value={selectedRewardId}
-          onChange={(e) => setSelectedRewardId(e.target.value)}
-          className="border rounded-md p-2 mr-2"
-        >
-          <option value="">Select Reward</option>
-          {rewards.map((reward) => (
-            <option key={reward.id} value={reward.id}>
-              {reward.reward_name}
-            </option>
-          ))}
-        </select>
-        <label className="mr-2">
-          Auto Claim:
-          <input
-            type="checkbox"
-            checked={autoClaim}
-            onChange={(e) => setAutoClaim(e.target.checked)}
-          />
-        </label>
-        <input
-          type="number"
-          value={streak}
-          onChange={(e) => setStreak(e.target.value)}
-          placeholder="Streak"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="number"
-          value={duplication}
-          onChange={(e) => setDuplication(e.target.value)}
-          placeholder="Duplication"
-          className="border rounded-md p-2 mr-2"
-        />
-        <button
-          onClick={addQuest}
-          className="bg-blue-500 text-white p-2 rounded-md"
-        >
-          Add Quest
-        </button>
-      </div>
+        {/* Assign Quest Section */}
+        {token && quests.length > 0 && (
+          <div className="bg-white p-6 rounded shadow-md mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Assign Quest</h2>
+            <form
+              onSubmit={assignQuest}
+              className="flex flex-col md:flex-row items-center"
+            >
+              <div className="mb-4 md:mb-0 md:mr-4">
+                <label className="block mb-1">Select Quest</label>
+                <select
+                  required
+                  value={assignQuestData.quest_id}
+                  onChange={(e) =>
+                    setAssignQuestData({
+                      ...assignQuestData,
+                      quest_id: e.target.value,
+                    })
+                  }
+                  className="px-3 py-2 border rounded w-full"
+                >
+                  <option value="">-- Select a Quest --</option>
+                  {quests.map((quest) => (
+                    <option key={quest.quest_id} value={quest.quest_id}>
+                      {quest.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="mt-4 md:mt-0 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+              >
+                Assign Quest
+              </button>
+            </form>
+          </div>
+        )}
 
-      {/* Reward Management Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Add Reward</h2>
-        <input
-          type="text"
-          value={rewardName}
-          onChange={(e) => setRewardName(e.target.value)}
-          placeholder="Reward Name"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="text"
-          value={rewardItem}
-          onChange={(e) => setRewardItem(e.target.value)}
-          placeholder="Reward Item"
-          className="border rounded-md p-2 mr-2"
-        />
-        <input
-          type="number"
-          value={rewardQty}
-          onChange={(e) => setRewardQty(e.target.value)}
-          placeholder="Reward Quantity"
-          className="border rounded-md p-2 mr-2"
-        />
-        <button
-          onClick={addReward}
-          className="bg-purple-500 text-white p-2 rounded-md"
-        >
-          Add Reward
-        </button>
-      </div>
-
-      {/* Assign Quest to User Section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-semibold mb-4">Assign Quest to User</h2>
-        <select
-          value={selectedUserId}
-          onChange={(e) => setSelectedUserId(e.target.value)}
-          className="border rounded-md p-2 mr-2"
-        >
-          <option value="">Select User</option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.user_name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selectedQuestId}
-          onChange={(e) => setSelectedQuestId(e.target.value)}
-          className="border rounded-md p-2 mr-2"
-        >
-          <option value="">Select Quest</option>
-          {quests.map((quest) => (
-            <option key={quest.id} value={quest.id}>
-              {quest.name}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={assignQuestToUser}
-          className="bg-green-500 text-white p-2 rounded-md"
-        >
-          Assign Quest
-        </button>
-      </div>
-
-      {/* Users with Quests Display Section */}
-      <div>
-        <h2 className="text-2xl font-semibold mb-4">Users with Quests</h2>
-        <ul>
-          {usersWithQuests.map((userQuest) => (
-            <li key={userQuest.user_id}>
-              User: {userQuest.user_name} - Quest: {userQuest.quest_name} -
-              Status: {userQuest.status}
-            </li>
-          ))}
-        </ul>
+        {/* User Quests Section */}
+        {token && (
+          <div className="bg-white p-6 rounded shadow-md mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Your Quests</h2>
+            <button
+              onClick={fetchUserQuests}
+              className="mb-4 bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+            >
+              Fetch Your Quests
+            </button>
+            {userQuests.length > 0 ? (
+              <table className="w-full table-auto">
+                <thead>
+                  <tr className="bg-gray-200">
+                    <th className="px-4 py-2">Quest ID</th>
+                    <th className="px-4 py-2">Quest Name</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {userQuests.map((uq) => (
+                    <tr
+                      key={`${uq.quest_id}-${uq.user_id}`}
+                      className="border-t"
+                    >
+                      <td className="px-4 py-2">{uq.quest_id}</td>
+                      <td className="px-4 py-2">{uq.quest_name}</td>
+                      <td className="px-4 py-2">{uq.status}</td>
+                      <td className="px-4 py-2">
+                        {uq.status !== "claimed" && (
+                          <button
+                            onClick={() => completeQuest(uq.quest_id)}
+                            className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"
+                          >
+                            Complete Quest
+                          </button>
+                        )}
+                        {uq.status === "claimed" && (
+                          <span className="text-green-700 font-semibold">
+                            Completed
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>You have no assigned quests. Assign a quest to get started!</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
-};
+}
 
 export default App;
