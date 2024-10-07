@@ -10,6 +10,8 @@ lerna-debug.log*
 __pycache__
 env
 
+*.db
+
 __pycache__/
 */env
 */__pycache__
