@@ -1,177 +1,106 @@
+from fastapi import FastAPI, HTTPException
 import sqlite3
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from passlib.context import CryptContext
-from pydantic import BaseModel
-from typing import Optional
 
-# Create FastAPI app
+# Database Setup
+DATABASE = 'users.db'
+
 app = FastAPI()
 
-# CORS settings
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# SQLite database connection
-def get_db():
-    conn = sqlite3.connect("auth_service.db", check_same_thread=False)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
-# Create tables for the User Authentication Service
 def init_db():
-    conn = sqlite3.connect("auth_service.db")
+    conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Users (
-            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_name TEXT NOT NULL UNIQUE,
-            hashed_password TEXT NOT NULL,
-            email TEXT NOT NULL UNIQUE,
-            status INTEGER NOT NULL DEFAULT 1
-        );
-        """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_name TEXT UNIQUE,
+        password TEXT,
+        gold INTEGER DEFAULT 0,
+        diamond INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        sign_in_count INTEGER DEFAULT 0
     )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Sessions (
-            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            session_token TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES Users(user_id)
-        );
-        """
-    )
+    ''')
     conn.commit()
     conn.close()
 
-# Call to initialize the database
 init_db()
 
-# Define Pydantic models
-class UserRegister(BaseModel):
-    user_name: str
-    password: str
-    email: str
-
-
-class UserLogin(BaseModel):
-    user_name: str
-    password: str
-
-
-class UserSession(BaseModel):
-    session_token: str
-
-
-# Helper functions for hashing and verifying passwords
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-# Register new user endpoint
-@app.post("/register/")
-def register_user(user: UserRegister, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    hashed_password = hash_password(user.password)
+@app.post("/signup/")
+async def signup(user_name: str, password: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
     try:
-        cursor.execute(
-            """
-            INSERT INTO Users (user_name, hashed_password, email)
-            VALUES (?, ?, ?)
-            """,
-            (user.user_name, hashed_password, user.email),
-        )
-        db.commit()
-        return {"message": "User registered successfully"}
-    except sqlite3.IntegrityError as e:
+        cursor.execute("INSERT INTO users (user_name, password, gold) VALUES (?, ?, ?)", (user_name, password, 20))
+        conn.commit()
+    except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="User already exists")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        conn.close()
 
+    return {"message": "User created", "user_name": user_name, "gold": 20}
 
-# Login endpoint
 @app.post("/login/")
-def login_user(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT user_id, hashed_password FROM Users WHERE user_name = ?
-        """,
-        (user.user_name,),
-    )
-    user_record = cursor.fetchone()
+async def login(user_name: str, password: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
-    if not user_record or not verify_password(user.password, user_record[1]):
-        raise HTTPException(status_code=400, detail="Invalid username or password")
+    cursor.execute("SELECT * FROM users WHERE user_name = ? AND password = ?", (user_name, password))
+    user = cursor.fetchone()
 
-    # Generate a dummy session token (in a real-world scenario, you'd use JWT or another method)
-    session_token = f"session_token_{user_record[0]}"
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
 
-    cursor.execute(
-        """
-        INSERT INTO Sessions (user_id, session_token) VALUES (?, ?)
-        """,
-        (user_record[0], session_token),
-    )
-    db.commit()
-    
-    return {"session_token": session_token}
+    return {"message": "Login successful", "user_id": user[0], "user_name": user[1], "gold": user[3], "diamond": user[4]}
 
+@app.post("/track-status/")
+async def track_status(user_name: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
-# Validate session endpoint
-@app.post("/validate-session/")
-def validate_session(session: UserSession, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT session_id FROM Sessions WHERE session_token = ?
-        """,
-        (session.session_token,),
-    )
-    session_record = cursor.fetchone()
+    cursor.execute("SELECT * FROM users WHERE user_name = ?", (user_name,))
+    user = cursor.fetchone()
 
-    if not session_record:
-        raise HTTPException(status_code=400, detail="Invalid session token")
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
 
-    return {"message": "Session valid"}
+    # Check the sign-in count
+    sign_in_count = user[6]
 
+    # Update sign-in count and give rewards if applicable
+    cursor.execute("UPDATE users SET sign_in_count = sign_in_count + 1 WHERE user_name = ?", (user_name,))
+    conn.commit()
 
-# Logout endpoint
+    # Reward logic for diamonds
+    if sign_in_count == 2:  # After the third sign-in
+        cursor.execute("UPDATE users SET diamond = diamond + 10 WHERE user_name = ?", (user_name,))
+        conn.commit()
+
+    cursor.execute("SELECT diamond, gold, sign_in_count FROM users WHERE user_name = ?", (user_name,))
+    updated_user = cursor.fetchone()
+
+    return {
+        "message": "Track Status successful",
+        "user_id": user[0],
+        "user_name": user[1],
+        "diamond": updated_user[0],
+        "gold": updated_user[1],
+        "sign_in_count": updated_user[2],
+    }
+
 @app.post("/logout/")
-def logout_user(session: UserSession, db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        DELETE FROM Sessions WHERE session_token = ?
-        """,
-        (session.session_token,),
-    )
-    db.commit()
+async def logout(user_name: str, password: str):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
-    return {"message": "Logged out successfully"}
+    cursor.execute("SELECT * FROM users WHERE user_name = ? AND password = ?", (user_name, password))
+    user = cursor.fetchone()
 
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
 
-# Run the app
+    return {"message": f"User {user_name} logged out successfully"}
+
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

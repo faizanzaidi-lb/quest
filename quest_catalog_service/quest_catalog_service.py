@@ -1,220 +1,120 @@
+from fastapi import FastAPI, HTTPException
 import sqlite3
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from typing import List
-from pydantic import BaseModel
 
-# Create FastAPI app
+# Database Setup
+DATABASE = 'quests.db'
+
 app = FastAPI()
 
-# CORS settings
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# SQLite database connection for the Quest Catalog Service
-def get_db():
-    conn = sqlite3.connect("quest_catalog.db", check_same_thread=False)
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-# Create tables if they don't exist
 def init_db():
-    conn = sqlite3.connect("quest_catalog.db")
+    conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Quests (
-            quest_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reward_id INTEGER,
-            auto_claim BOOLEAN NOT NULL,
-            streak INTEGER NOT NULL,
-            duplication INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL
-        );
-        """
+    
+    # Create rewards table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS rewards (
+        reward_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reward_name TEXT,
+        reward_item TEXT,
+        reward_qty INTEGER
     )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Rewards (
-            reward_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reward_name TEXT NOT NULL,
-            reward_item TEXT NOT NULL,
-            reward_qty INTEGER NOT NULL
-        );
-        """
+    ''')
+    
+    # Create quests table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS quests (
+        quest_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reward_id INTEGER,
+        auto_claim BOOLEAN DEFAULT FALSE,
+        streak INTEGER DEFAULT 0,
+        duplication INTEGER DEFAULT 0,
+        name TEXT,
+        description TEXT,
+        FOREIGN KEY (reward_id) REFERENCES rewards(reward_id)
     )
+    ''')
+    
     conn.commit()
     conn.close()
 
-# Call to initialize the database
+# Initialize database
 init_db()
 
-# Define Pydantic models
-class Quest(BaseModel):
-    quest_id: int
-    reward_id: int
-    auto_claim: bool
-    streak: int
-    duplication: int
-    name: str
-    description: str
+@app.post("/create_quest/")
+async def create_quest(name: str, description: str, reward_id: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
+    cursor.execute("INSERT INTO quests (reward_id, name, description) VALUES (?, ?, ?)", (reward_id, name, description))
+    conn.commit()
+    conn.close()
 
-class QuestCreate(BaseModel):
-    reward_id: int
-    auto_claim: bool
-    streak: int
-    duplication: int
-    name: str
-    description: str
+    return {"message": "Quest created", "name": name}
 
+@app.get("/get_quest/{quest_id}")
+async def get_quest(quest_id: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
-class Reward(BaseModel):
-    reward_id: int
-    reward_name: str
-    reward_item: str
-    reward_qty: int
+    cursor.execute("SELECT * FROM quests WHERE quest_id = ?", (quest_id,))
+    quest = cursor.fetchone()
 
+    if not quest:
+        raise HTTPException(status_code=404, detail="Quest not found")
 
-class RewardCreate(BaseModel):
-    reward_name: str
-    reward_item: str
-    reward_qty: int
+    conn.close()
+    return {"quest_id": quest[0], "reward_id": quest[1], "name": quest[5], "description": quest[6]}
 
+@app.post("/create_reward/")
+async def create_reward(reward_name: str, reward_item: str, reward_qty: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
 
-# Get Quests endpoint
-@app.get("/quests/", response_model=List[Quest])
-def get_quests(db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM Quests")
-    quests = cursor.fetchall()
+    cursor.execute("INSERT INTO rewards (reward_name, reward_item, reward_qty) VALUES (?, ?, ?)", (reward_name, reward_item, reward_qty))
+    conn.commit()
+    conn.close()
+
+    return {"message": "Reward created", "reward_name": reward_name}
+
+@app.get("/get_rewards/{reward_id}")
+async def get_rewards(reward_id: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM rewards WHERE reward_id = ?", (reward_id,))
+    reward = cursor.fetchone()
+
+    if not reward:
+        raise HTTPException(status_code=404, detail="Reward not found")
+
+    conn.close()
+    return {"reward_id": reward[0], "reward_name": reward[1], "reward_item": reward[2], "reward_qty": reward[3]}
+
+@app.get("/get_quests_with_rewards/")
+async def get_quests_with_rewards():
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+    SELECT quests.quest_id, quests.name, quests.description, rewards.reward_name, rewards.reward_item
+    FROM quests
+    JOIN rewards ON quests.reward_id = rewards.reward_id
+    ''')
+    quests_with_rewards = cursor.fetchall()
+
+    conn.close()
     return [
         {
             "quest_id": quest[0],
-            "reward_id": quest[1],
-            "auto_claim": quest[2],
-            "streak": quest[3],
-            "duplication": quest[4],
-            "name": quest[5],
-            "description": quest[6],
+            "name": quest[1],
+            "description": quest[2],
+            "reward_name": quest[3],
+            "reward_item": quest[4]
         }
-        for quest in quests
+        for quest in quests_with_rewards
     ]
-
-
-# Create Quest endpoint
-@app.post("/quests/", response_model=Quest)
-def create_quest(quest: QuestCreate, db: sqlite3.Connection = Depends(get_db)):
-    try:
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            INSERT INTO Quests (reward_id, auto_claim, streak, duplication, name, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                quest.reward_id,
-                quest.auto_claim,
-                quest.streak,
-                quest.duplication,
-                quest.name,
-                quest.description,
-            ),
-        )
-        db.commit()
-        quest_id = cursor.lastrowid
-        return {**quest.dict(), "quest_id": quest_id}
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
-
-
-# Get Rewards endpoint
-@app.get("/rewards/")
-def get_rewards(db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    try:
-        cursor.execute("SELECT * FROM Rewards")
-        rewards = cursor.fetchall()
-        return [
-            {
-                "reward_id": reward[0],
-                "reward_name": reward[1],
-                "reward_item": reward[2],
-                "reward_qty": reward[3],
-            }
-            for reward in rewards
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
-
-
-# Create Reward endpoint
-@app.post("/rewards/", response_model=Reward)
-def create_reward(reward: RewardCreate, db: sqlite3.Connection = Depends(get_db)):
-    try:
-        cursor = db.cursor()
-        cursor.execute(
-            """
-            INSERT INTO Rewards (reward_name, reward_item, reward_qty)
-            VALUES (?, ?, ?)
-            """,
-            (reward.reward_name, reward.reward_item, reward.reward_qty),
-        )
-        db.commit()
-        reward_id = cursor.lastrowid
-        return {**reward.dict(), "reward_id": reward_id}
-    except sqlite3.IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Integrity error: " + str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error: " + str(e))
-
-
-# Get Quests with Rewards endpoint
-@app.get("/quests-with-rewards/")
-def get_quests_with_rewards(db: sqlite3.Connection = Depends(get_db)):
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT q.quest_id, q.reward_id, q.auto_claim, q.streak, q.duplication, q.name, q.description, 
-               r.reward_name, r.reward_item, r.reward_qty 
-        FROM Quests q
-        LEFT JOIN Rewards r ON q.reward_id = r.reward_id
-        """
-    )
-    quests_with_rewards = cursor.fetchall()
-
-    quests = []
-    for quest in quests_with_rewards:
-        quests.append(
-            {
-                "quest_id": quest[0],
-                "reward_id": quest[1],
-                "auto_claim": quest[2],
-                "streak": quest[3],
-                "duplication": quest[4],
-                "name": quest[5],
-                "description": quest[6],
-                "reward_name": quest[7],
-                "reward_item": quest[8],
-                "reward_qty": quest[9],
-            }
-        )
-    return quests
-
 
 # Run the app
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(app, host="127.0.0.1", port=8001)
