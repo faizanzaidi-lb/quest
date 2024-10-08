@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 import sqlite3
 
 # Database Setup
-DATABASE = 'quests.db'
+DATABASE = 'quest_catalog.db'
 
 app = FastAPI()
 
@@ -10,12 +10,23 @@ def init_db():
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     
+    # Create users table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_name TEXT UNIQUE,
+        gold INTEGER DEFAULT 0,
+        diamond INTEGER DEFAULT 0,
+        status TEXT CHECK(status IN ('new', 'not_new', 'banned'))
+    )
+    ''')
+    
     # Create rewards table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS rewards (
         reward_id INTEGER PRIMARY KEY AUTOINCREMENT,
         reward_name TEXT,
-        reward_item TEXT,
+        reward_item TEXT CHECK(reward_item IN ('gold', 'diamond')),
         reward_qty INTEGER
     )
     ''')
@@ -34,6 +45,18 @@ def init_db():
     )
     ''')
     
+    # Create user_quest_rewards table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_quest_rewards (
+        user_quest_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        quest_id INTEGER,
+        status TEXT CHECK(status IN ('claimed', 'not_claimed')),
+        FOREIGN KEY (user_id) REFERENCES users(user_id),
+        FOREIGN KEY (quest_id) REFERENCES quests(quest_id)
+    )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -41,29 +64,16 @@ def init_db():
 init_db()
 
 @app.post("/create_quest/")
-async def create_quest(name: str, description: str, reward_id: int):
+async def create_quest(name: str, description: str, reward_id: int, auto_claim: bool, streak: int, duplication: int):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
-    cursor.execute("INSERT INTO quests (reward_id, name, description) VALUES (?, ?, ?)", (reward_id, name, description))
+    cursor.execute("INSERT INTO quests (reward_id, name, description, auto_claim, streak, duplication) VALUES (?, ?, ?, ?, ?, ?)", 
+                   (reward_id, name, description, auto_claim, streak, duplication))
     conn.commit()
     conn.close()
 
     return {"message": "Quest created", "name": name}
-
-@app.get("/get_quest/{quest_id}")
-async def get_quest(quest_id: int):
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM quests WHERE quest_id = ?", (quest_id,))
-    quest = cursor.fetchone()
-
-    if not quest:
-        raise HTTPException(status_code=404, detail="Quest not found")
-
-    conn.close()
-    return {"quest_id": quest[0], "reward_id": quest[1], "name": quest[5], "description": quest[6]}
 
 @app.post("/create_reward/")
 async def create_reward(reward_name: str, reward_item: str, reward_qty: int):
@@ -76,31 +86,30 @@ async def create_reward(reward_name: str, reward_item: str, reward_qty: int):
 
     return {"message": "Reward created", "reward_name": reward_name}
 
-@app.get("/get_rewards/{reward_id}")
-async def get_rewards(reward_id: int):
+@app.post("/assign_quest_to_user/")
+async def assign_quest_to_user(user_id: int, quest_id: int):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM rewards WHERE reward_id = ?", (reward_id,))
-    reward = cursor.fetchone()
-
-    if not reward:
-        raise HTTPException(status_code=404, detail="Reward not found")
-
+    cursor.execute("INSERT INTO user_quest_rewards (user_id, quest_id, status) VALUES (?, ?, 'not_claimed')", (user_id, quest_id))
+    conn.commit()
     conn.close()
-    return {"reward_id": reward[0], "reward_name": reward[1], "reward_item": reward[2], "reward_qty": reward[3]}
 
-@app.get("/get_quests_with_rewards/")
-async def get_quests_with_rewards():
+    return {"message": "Quest assigned to user"}
+
+@app.get("/get_user_quests/{user_id}")
+async def get_user_quests(user_id: int):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
     cursor.execute('''
-    SELECT quests.quest_id, quests.name, quests.description, rewards.reward_name, rewards.reward_item
-    FROM quests
-    JOIN rewards ON quests.reward_id = rewards.reward_id
-    ''')
-    quests_with_rewards = cursor.fetchall()
+    SELECT quests.quest_id, quests.name, quests.description, user_quest_rewards.status
+    FROM user_quest_rewards
+    JOIN quests ON user_quest_rewards.quest_id = quests.quest_id
+    WHERE user_quest_rewards.user_id = ?
+    ''', (user_id,))
+    
+    user_quests = cursor.fetchall()
 
     conn.close()
     return [
@@ -108,11 +117,22 @@ async def get_quests_with_rewards():
             "quest_id": quest[0],
             "name": quest[1],
             "description": quest[2],
-            "reward_name": quest[3],
-            "reward_item": quest[4]
+            "status": quest[3]
         }
-        for quest in quests_with_rewards
+        for quest in user_quests
     ]
+
+@app.post("/receive_reward/")
+async def receive_reward(user_id: int, quest_id: int):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+
+    # Update the user quest reward status to claimed manually
+    cursor.execute("UPDATE user_quest_rewards SET status = 'claimed' WHERE user_id = ? AND quest_id = ?", (user_id, quest_id))
+    conn.commit()
+    conn.close()
+
+    return {"message": "Reward received for the quest"}
 
 # Run the app
 if __name__ == "__main__":
