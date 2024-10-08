@@ -1,10 +1,10 @@
-// src/App.jsx
-
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 function App() {
-  const API_BASE = "http://localhost:8000";
+  const AUTH_SERVICE_URL = "http://localhost:8001";
+  const QUEST_SERVICE_URL = "http://localhost:8003";
+
   const [signupData, setSignupData] = useState({
     user_name: "",
     password: "",
@@ -16,13 +16,7 @@ function App() {
   const [quests, setQuests] = useState([]);
   const [assignQuestData, setAssignQuestData] = useState({ quest_id: "" });
   const [userQuests, setUserQuests] = useState([]);
-
-  const axiosInstance = axios.create({
-    baseURL: API_BASE,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (token) {
@@ -43,7 +37,7 @@ function App() {
 
   const fetchUser = async (user_id) => {
     try {
-      const response = await axios.get(`${API_BASE}/users/${user_id}`);
+      const response = await axios.get(`${AUTH_SERVICE_URL}/users/${user_id}`);
       setUser(response.data);
     } catch (error) {
       console.error(
@@ -56,32 +50,42 @@ function App() {
   const handleSignup = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${API_BASE}/signup`, signupData);
+      const response = await axios.post(
+        `${AUTH_SERVICE_URL}/signup`,
+        signupData
+      );
       setToken(response.data.access_token);
       localStorage.setItem("token", response.data.access_token);
-      alert("Signup successful!");
+      setMessage("Signup successful!");
     } catch (error) {
       console.error("Signup error:", error.response?.data || error.message);
-      alert(`Signup failed: ${error.response?.data.detail || error.message}`);
+      setMessage(
+        `Signup failed: ${error.response?.data.detail || error.message}`
+      );
     }
   };
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${API_BASE}/login`, loginData);
+      const response = await axios.post(`${AUTH_SERVICE_URL}/login`, loginData);
       setToken(response.data.access_token);
       localStorage.setItem("token", response.data.access_token);
-      alert("Login successful!");
+      setMessage("Login successful!");
     } catch (error) {
       console.error("Login error:", error.response?.data || error.message);
-      alert(`Login failed: ${error.response?.data.detail || error.message}`);
+      setMessage(
+        `Login failed: ${error.response?.data.detail || error.message}`
+      );
     }
   };
 
   const fetchQuests = async () => {
     try {
-      const response = await axiosInstance.get("/quests/");
+      const response = await axios.post(`${QUEST_SERVICE_URL}/assign-quest/`, {
+        user_id: user.user_id,
+        quest_id: 1,
+      });
       setQuests(response.data);
     } catch (error) {
       console.error(
@@ -102,15 +106,15 @@ function App() {
         user_id: user.user_id,
         quest_id: parseInt(assignQuestData.quest_id),
       };
-      await axiosInstance.post("/assign-quest/", payload);
-      alert("Quest assigned successfully!");
+      await axios.post(`${QUEST_SERVICE_URL}/assign-quest/`, payload);
+      setMessage("Quest assigned successfully!");
       fetchUserQuests();
     } catch (error) {
       console.error(
         "Error assigning quest:",
         error.response?.data || error.message
       );
-      alert(
+      setMessage(
         `Assign quest failed: ${error.response?.data.detail || error.message}`
       );
     }
@@ -122,7 +126,9 @@ function App() {
       return;
     }
     try {
-      const response = await axiosInstance.get(`/user-quests/${user.user_id}/`);
+      const response = await axios.get(
+        `${QUEST_SERVICE_URL}/user-quests/${user.user_id}/`
+      );
       setUserQuests(response.data);
     } catch (error) {
       console.error(
@@ -142,15 +148,15 @@ function App() {
         user_id: user.user_id,
         quest_id: quest_id,
       };
-      await axiosInstance.post("/complete-quest/", payload);
-      alert("Quest completed successfully!");
+      await axios.post(`${QUEST_SERVICE_URL}/complete-quest/`, payload);
+      setMessage("Quest completed successfully!");
       fetchUserQuests();
     } catch (error) {
       console.error(
         "Error completing quest:",
         error.response?.data || error.message
       );
-      alert(
+      setMessage(
         `Complete quest failed: ${error.response?.data.detail || error.message}`
       );
     }
@@ -161,7 +167,7 @@ function App() {
     localStorage.removeItem("token");
     setUser(null);
     setUserQuests([]);
-    alert("Logged out successfully!");
+    setMessage("Logged out successfully!");
   };
 
   return (
@@ -334,6 +340,8 @@ function App() {
           )}
         </div>
       )}
+
+      {message && <p>{message}</p>}
     </div>
   );
 }

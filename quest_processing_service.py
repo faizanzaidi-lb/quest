@@ -1,10 +1,9 @@
-# quest_processing_service.py
-
 import sqlite3
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import requests
 
 app = FastAPI()
 
@@ -15,6 +14,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+AUTH_SERVICE_ADD_DIAMONDS_URL = "http://localhost:8001/add-diamonds/{user_id}/"
 
 
 def get_db():
@@ -57,6 +58,10 @@ class UserQuestReward(BaseModel):
     quest_id: int
     status: str
     progress: int
+
+
+class TrackSignIn(BaseModel):
+    user_id: int
 
 
 @app.post("/assign-quest/")
@@ -120,7 +125,8 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
 
 
 @app.post("/track-sign-in/")
-def track_sign_in(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+def track_sign_in(data: TrackSignIn, db: sqlite3.Connection = Depends(get_db)):
+    user_id = data.user_id
     quest_id = 1
     cursor = db.cursor()
     cursor.execute(
@@ -170,14 +176,10 @@ def track_sign_in(user_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 def reward_user(user_id: int, diamonds: int):
     try:
-        auth_db = sqlite3.connect("auth.db")
-        cursor = auth_db.cursor()
-        cursor.execute(
-            "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
-            (diamonds, user_id),
-        )
-        auth_db.commit()
-        auth_db.close()
+        url = AUTH_SERVICE_ADD_DIAMONDS_URL.format(user_id=user_id)
+        response = requests.post(url, json={"diamonds": diamonds})
+        if response.status_code != 200:
+            print(f"Failed to add diamonds to user {user_id}: {response.text}")
     except Exception as e:
         print(f"Failed to reward user {user_id}: {e}")
 

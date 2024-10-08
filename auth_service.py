@@ -1,5 +1,3 @@
-# auth_service.py
-
 import sqlite3
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -77,6 +75,10 @@ class UserResponse(BaseModel):
     diamond: int
     status: str
     login_count: int
+
+
+class AddDiamonds(BaseModel):
+    diamonds: int
 
 
 def hash_password(password: str) -> str:
@@ -186,6 +188,19 @@ def get_user(user_id: int, db: sqlite3.Connection = Depends(get_db)):
         }
     else:
         raise HTTPException(status_code=404, detail="User not found")
+
+
+@app.post("/add-diamonds/{user_id}/")
+def add_diamonds(
+    user_id: int, data: AddDiamonds, db: sqlite3.Connection = Depends(get_db)
+):
+    cursor = db.cursor()
+    cursor.execute(
+        "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
+        (data.diamonds, user_id),
+    )
+    db.commit()
+    return {"message": "Diamonds added successfully"}
 
 
 if __name__ == "__main__":
