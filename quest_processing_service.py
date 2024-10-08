@@ -5,11 +5,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
-import requests
 
 app = FastAPI()
 
-# Configure CORS as needed
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,12 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Service URLs (Ensure these match where your services are running)
-AUTH_SERVICE_URL = "http://localhost:8001"
-QUEST_CATALOG_URL = "http://localhost:8002"
 
-
-# Database Dependency
 def get_db():
     conn = sqlite3.connect("quest_processing.db", check_same_thread=False)
     try:
@@ -32,7 +25,6 @@ def get_db():
         conn.close()
 
 
-# Initialize Database
 def init_db():
     conn = sqlite3.connect("quest_processing.db")
     cursor = conn.cursor()
@@ -42,6 +34,7 @@ def init_db():
             user_id INTEGER,
             quest_id INTEGER,
             status TEXT NOT NULL,
+            progress INTEGER DEFAULT 0,
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, quest_id)
         );
@@ -54,7 +47,6 @@ def init_db():
 init_db()
 
 
-# Pydantic Models
 class AssignQuest(BaseModel):
     user_id: int
     quest_id: int
@@ -64,35 +56,19 @@ class UserQuestReward(BaseModel):
     user_id: int
     quest_id: int
     status: str
+    progress: int
 
 
-# Routes
 @app.post("/assign-quest/")
 def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get_db)):
-    # Verify user exists using Auth Service
-    try:
-        response = requests.get(f"{AUTH_SERVICE_URL}/users/{assign_quest.user_id}")
-        if response.status_code != 200:
-            raise HTTPException(status_code=404, detail="User not found")
-    except requests.exceptions.RequestException:
-        raise HTTPException(status_code=500, detail="Auth service unavailable")
-
-    # Verify quest exists using Quest Catalog Service
-    try:
-        response = requests.get(f"{QUEST_CATALOG_URL}/quests/{assign_quest.quest_id}")
-        if response.status_code != 200:
-            raise HTTPException(status_code=404, detail="Quest not found")
-    except requests.exceptions.RequestException:
-        raise HTTPException(status_code=500, detail="Quest Catalog service unavailable")
-
     try:
         cursor = db.cursor()
         cursor.execute(
             """
-            INSERT INTO User_Quest_Rewards (user_id, quest_id, status)
-            VALUES (?, ?, ?)
+            INSERT INTO User_Quest_Rewards (user_id, quest_id, status, progress)
+            VALUES (?, ?, ?, ?)
             """,
-            (assign_quest.user_id, assign_quest.quest_id, "not_claimed"),
+            (assign_quest.user_id, assign_quest.quest_id, "in_progress", 0),
         )
         db.commit()
         return {"message": "Quest assigned successfully"}
@@ -107,7 +83,7 @@ def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
         """
-        SELECT quest_id, status FROM User_Quest_Rewards WHERE user_id = ?
+        SELECT quest_id, status, progress FROM User_Quest_Rewards WHERE user_id = ?
         """,
         (user_id,),
     )
@@ -117,6 +93,7 @@ def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
             "user_id": user_id,
             "quest_id": quest[0],
             "status": quest[1],
+            "progress": quest[2],
         }
         for quest in user_quests
     ]
@@ -129,10 +106,10 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
         cursor.execute(
             """
             UPDATE User_Quest_Rewards
-            SET status = ?
+            SET status = ?, progress = ?
             WHERE user_id = ? AND quest_id = ?
             """,
-            ("claimed", assign_quest.user_id, assign_quest.quest_id),
+            ("claimed", 3, assign_quest.user_id, assign_quest.quest_id),
         )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Quest assignment not found")
@@ -140,6 +117,69 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
         return {"message": "Quest completed and reward claimed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/track-sign-in/")
+def track_sign_in(user_id: int, db: sqlite3.Connection = Depends(get_db)):
+    quest_id = 1
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT progress, status FROM User_Quest_Rewards WHERE user_id = ? AND quest_id = ?",
+        (user_id, quest_id),
+    )
+    result = cursor.fetchone()
+    if result:
+        progress, status = result
+        if status == "claimed":
+            return {"message": "Quest already completed"}
+        progress += 1
+        if progress >= 3:
+            cursor.execute(
+                """
+                UPDATE User_Quest_Rewards
+                SET progress = ?, status = ?
+                WHERE user_id = ? AND quest_id = ?
+                """,
+                (progress, "claimed", user_id, quest_id),
+            )
+            db.commit()
+            reward_user(user_id, 10)
+            return {"message": "Quest completed and reward claimed!"}
+        else:
+            cursor.execute(
+                """
+                UPDATE User_Quest_Rewards
+                SET progress = ?
+                WHERE user_id = ? AND quest_id = ?
+                """,
+                (progress, user_id, quest_id),
+            )
+            db.commit()
+            return {"message": f"Progress updated to {progress}"}
+    else:
+        cursor.execute(
+            """
+            INSERT INTO User_Quest_Rewards (user_id, quest_id, status, progress)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, quest_id, "in_progress", 1),
+        )
+        db.commit()
+        return {"message": "Quest started: 1/3 sign-ins"}
+
+
+def reward_user(user_id: int, diamonds: int):
+    try:
+        auth_db = sqlite3.connect("auth.db")
+        cursor = auth_db.cursor()
+        cursor.execute(
+            "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
+            (diamonds, user_id),
+        )
+        auth_db.commit()
+        auth_db.close()
+    except Exception as e:
+        print(f"Failed to reward user {user_id}: {e}")
 
 
 if __name__ == "__main__":

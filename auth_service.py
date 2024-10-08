@@ -1,20 +1,19 @@
 # auth_service.py
 
 import sqlite3
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
 import hashlib
-import jwt  # Ensure this is PyJWT
+import jwt
 import datetime
+import requests
 
-# Secret key for JWT
 SECRET_KEY = "your_secret_key"  # Replace with a secure secret key in production
+QUEST_PROCESSING_SERVICE_URL = "http://localhost:8003/track-sign-in/"
 
 app = FastAPI()
 
-# Configure CORS as needed
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Replace with specific origins in production
@@ -24,7 +23,6 @@ app.add_middleware(
 )
 
 
-# Database Dependency
 def get_db():
     conn = sqlite3.connect("auth.db", check_same_thread=False)
     try:
@@ -33,7 +31,6 @@ def get_db():
         conn.close()
 
 
-# Initialize Database
 def init_db():
     conn = sqlite3.connect("auth.db")
     cursor = conn.cursor()
@@ -45,7 +42,8 @@ def init_db():
             password TEXT NOT NULL,
             gold INTEGER DEFAULT 0,
             diamond INTEGER DEFAULT 0,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            login_count INTEGER DEFAULT 0
         );
         """
     )
@@ -56,7 +54,6 @@ def init_db():
 init_db()
 
 
-# Pydantic Models
 class UserCreate(BaseModel):
     user_name: str
     password: str
@@ -79,9 +76,9 @@ class UserResponse(BaseModel):
     gold: int
     diamond: int
     status: str
+    login_count: int
 
 
-# Helper Functions
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -94,7 +91,7 @@ def create_token(user_id: int) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
-def verify_token(token: str) -> Optional[int]:
+def verify_token(token: str) -> int:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return payload.get("user_id")
@@ -104,7 +101,6 @@ def verify_token(token: str) -> Optional[int]:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-# Routes
 @app.post("/signup", response_model=Token)
 def signup(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -117,7 +113,6 @@ def signup(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
         db.commit()
         user_id = cursor.lastrowid
 
-        # Assign initial reward, e.g., 20 gold
         cursor.execute(
             "UPDATE Users SET gold = gold + 20 WHERE user_id = ?", (user_id,)
         )
@@ -138,12 +133,32 @@ def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
         hashed_password = hash_password(user.password)
         cursor = db.cursor()
         cursor.execute(
-            "SELECT user_id FROM Users WHERE user_name = ? AND password = ?",
+            "SELECT user_id, login_count FROM Users WHERE user_name = ? AND password = ?",
             (user.user_name, hashed_password),
         )
         result = cursor.fetchone()
         if result:
-            user_id = result[0]
+            user_id, login_count = result
+
+            cursor.execute(
+                "UPDATE Users SET login_count = login_count + 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            db.commit()
+
+            try:
+                response = requests.post(
+                    QUEST_PROCESSING_SERVICE_URL, json={"user_id": user_id}
+                )
+                if response.status_code != 200:
+                    raise HTTPException(
+                        status_code=500, detail="Failed to track quest progress"
+                    )
+            except requests.exceptions.RequestException:
+                raise HTTPException(
+                    status_code=500, detail="Quest Processing service unavailable"
+                )
+
             token = create_token(user_id)
             return {"access_token": token, "token_type": "bearer"}
         else:
@@ -156,7 +171,7 @@ def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
 def get_user(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
-        "SELECT user_id, user_name, gold, diamond, status FROM Users WHERE user_id = ?",
+        "SELECT user_id, user_name, gold, diamond, status, login_count FROM Users WHERE user_id = ?",
         (user_id,),
     )
     user = cursor.fetchone()
@@ -167,6 +182,7 @@ def get_user(user_id: int, db: sqlite3.Connection = Depends(get_db)):
             "gold": user[2],
             "diamond": user[3],
             "status": user[4],
+            "login_count": user[5],
         }
     else:
         raise HTTPException(status_code=404, detail="User not found")
