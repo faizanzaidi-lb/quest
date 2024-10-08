@@ -9,6 +9,11 @@ import hashlib
 import jwt
 import datetime
 import requests
+import logging
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 SECRET_KEY = "your_secret_key"  # Replace with a secure secret key in production
 QUEST_PROCESSING_SERVICE_URL = "http://localhost:8003/track-sign-in/"
@@ -59,7 +64,7 @@ init_db()
 class UserCreate(BaseModel):
     user_name: str
     password: str
-    status: str
+    status: str 
 
 
 class UserLogin(BaseModel):
@@ -82,6 +87,9 @@ class UserResponse(BaseModel):
 
 class AddDiamonds(BaseModel):
     diamonds: Optional[int] = None
+
+
+class AddGold(BaseModel):
     gold: Optional[int] = None
 
 
@@ -119,17 +127,36 @@ def signup(user: UserCreate, db: sqlite3.Connection = Depends(get_db)):
         db.commit()
         user_id = cursor.lastrowid
 
+        # Initialize user with 20 gold
         cursor.execute(
             "UPDATE Users SET gold = gold + 20 WHERE user_id = ?", (user_id,)
         )
         db.commit()
 
+        # Optionally, assign default quests or perform other initialization here
+
+        # Track initial sign-in if necessary
+        try:
+            response = requests.post(
+                QUEST_PROCESSING_SERVICE_URL, json={"user_id": user_id}
+            )
+            if response.status_code != 200:
+                logger.error(
+                    f"Failed to track initial sign-in for user {user_id}: {response.status_code} {response.text}"
+                )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error connecting to Quest Processing Service: {e}")
+
         token = create_token(user_id)
+        logger.info(
+            f"User {user.user_name} signed up successfully with user_id {user_id}."
+        )
         return {"access_token": token, "token_type": "bearer"}
 
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Username already exists")
     except Exception as e:
+        logger.error(f"Signup error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -146,24 +173,27 @@ def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
         if result:
             user_id = result["user_id"]
 
+            # Track sign-in
             try:
                 response = requests.post(
                     QUEST_PROCESSING_SERVICE_URL, json={"user_id": user_id}
                 )
                 if response.status_code != 200:
-                    raise HTTPException(
-                        status_code=500, detail="Failed to track quest progress"
+                    logger.error(
+                        f"Failed to track sign-in for user {user_id}: {response.status_code} {response.text}"
                     )
-            except requests.exceptions.RequestException:
-                raise HTTPException(
-                    status_code=500, detail="Quest Processing service unavailable"
-                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error connecting to Quest Processing Service: {e}")
 
             token = create_token(user_id)
+            logger.info(
+                f"User {user.user_name} logged in successfully with user_id {user_id}."
+            )
             return {"access_token": token, "token_type": "bearer"}
         else:
             raise HTTPException(status_code=401, detail="Invalid credentials")
     except Exception as e:
+        logger.error(f"Login error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -198,6 +228,16 @@ def add_diamonds(
             "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
             (data.diamonds, user_id),
         )
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.commit()
+    logger.info(f"Added {data.diamonds} diamonds to user {user_id}.")
+    return {"message": "Diamonds added successfully"}
+
+
+@app.post("/add-gold/{user_id}/")
+def add_gold(user_id: int, data: AddGold, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
     if data.gold is not None:
         cursor.execute(
             "UPDATE Users SET gold = gold + ? WHERE user_id = ?", (data.gold, user_id)
@@ -205,7 +245,8 @@ def add_diamonds(
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="User not found")
     db.commit()
-    return {"message": "Rewards added successfully"}
+    logger.info(f"Added {data.gold} gold to user {user_id}.")
+    return {"message": "Gold added successfully"}
 
 
 if __name__ == "__main__":
