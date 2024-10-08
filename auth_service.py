@@ -1,7 +1,10 @@
+# auth_service.py
+
 import sqlite3
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
 import hashlib
 import jwt
 import datetime
@@ -23,6 +26,7 @@ app.add_middleware(
 
 def get_db():
     conn = sqlite3.connect("auth.db", check_same_thread=False)
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
@@ -40,8 +44,7 @@ def init_db():
             password TEXT NOT NULL,
             gold INTEGER DEFAULT 0,
             diamond INTEGER DEFAULT 0,
-            status TEXT NOT NULL,
-            login_count INTEGER DEFAULT 0
+            status INTEGER NOT NULL
         );
         """
     )
@@ -52,6 +55,7 @@ def init_db():
 init_db()
 
 
+# Pydantic Models
 class UserCreate(BaseModel):
     user_name: str
     password: str
@@ -74,11 +78,11 @@ class UserResponse(BaseModel):
     gold: int
     diamond: int
     status: str
-    login_count: int
 
 
 class AddDiamonds(BaseModel):
-    diamonds: int
+    diamonds: Optional[int] = None
+    gold: Optional[int] = None
 
 
 def hash_password(password: str) -> str:
@@ -135,18 +139,12 @@ def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
         hashed_password = hash_password(user.password)
         cursor = db.cursor()
         cursor.execute(
-            "SELECT user_id, login_count FROM Users WHERE user_name = ? AND password = ?",
+            "SELECT user_id FROM Users WHERE user_name = ? AND password = ?",
             (user.user_name, hashed_password),
         )
         result = cursor.fetchone()
         if result:
-            user_id, login_count = result
-
-            cursor.execute(
-                "UPDATE Users SET login_count = login_count + 1 WHERE user_id = ?",
-                (user_id,),
-            )
-            db.commit()
+            user_id = result["user_id"]
 
             try:
                 response = requests.post(
@@ -173,19 +171,19 @@ def login(user: UserLogin, db: sqlite3.Connection = Depends(get_db)):
 def get_user(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
-        "SELECT user_id, user_name, gold, diamond, status, login_count FROM Users WHERE user_id = ?",
+        "SELECT user_id, user_name, gold, diamond, status FROM Users WHERE user_id = ?",
         (user_id,),
     )
     user = cursor.fetchone()
     if user:
-        return {
-            "user_id": user[0],
-            "user_name": user[1],
-            "gold": user[2],
-            "diamond": user[3],
-            "status": user[4],
-            "login_count": user[5],
-        }
+        status_map = {0: "new", 1: "not_new", 2: "banned"}
+        return UserResponse(
+            user_id=user["user_id"],
+            user_name=user["user_name"],
+            gold=user["gold"],
+            diamond=user["diamond"],
+            status=status_map.get(user["status"], "unknown"),
+        )
     else:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -195,12 +193,19 @@ def add_diamonds(
     user_id: int, data: AddDiamonds, db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    cursor.execute(
-        "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
-        (data.diamonds, user_id),
-    )
+    if data.diamonds is not None:
+        cursor.execute(
+            "UPDATE Users SET diamond = diamond + ? WHERE user_id = ?",
+            (data.diamonds, user_id),
+        )
+    if data.gold is not None:
+        cursor.execute(
+            "UPDATE Users SET gold = gold + ? WHERE user_id = ?", (data.gold, user_id)
+        )
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="User not found")
     db.commit()
-    return {"message": "Diamonds added successfully"}
+    return {"message": "Rewards added successfully"}
 
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
+// src/App.jsx
+
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 function App() {
   const AUTH_SERVICE_URL = "http://localhost:8001";
-  const QUEST_SERVICE_URL = "http://localhost:8003";
+  const QUEST_CATALOG_URL = "http://localhost:8002";
+  const QUEST_PROCESSING_URL = "http://localhost:8003";
 
   const [signupData, setSignupData] = useState({
     user_name: "",
@@ -82,10 +85,7 @@ function App() {
 
   const fetchQuests = async () => {
     try {
-      const response = await axios.post(`${QUEST_SERVICE_URL}/assign-quest/`, {
-        user_id: user.user_id,
-        quest_id: 1,
-      });
+      const response = await axios.get(`${QUEST_CATALOG_URL}/quests/`);
       setQuests(response.data);
     } catch (error) {
       console.error(
@@ -106,7 +106,7 @@ function App() {
         user_id: user.user_id,
         quest_id: parseInt(assignQuestData.quest_id),
       };
-      await axios.post(`${QUEST_SERVICE_URL}/assign-quest/`, payload);
+      await axios.post(`${QUEST_PROCESSING_URL}/assign-quest/`, payload);
       setMessage("Quest assigned successfully!");
       fetchUserQuests();
     } catch (error) {
@@ -127,7 +127,7 @@ function App() {
     }
     try {
       const response = await axios.get(
-        `${QUEST_SERVICE_URL}/user-quests/${user.user_id}/`
+        `${QUEST_PROCESSING_URL}/user-quests/${user.user_id}/`
       );
       setUserQuests(response.data);
     } catch (error) {
@@ -148,9 +148,10 @@ function App() {
         user_id: user.user_id,
         quest_id: quest_id,
       };
-      await axios.post(`${QUEST_SERVICE_URL}/complete-quest/`, payload);
+      await axios.post(`${QUEST_PROCESSING_URL}/complete-quest/`, payload);
       setMessage("Quest completed successfully!");
       fetchUserQuests();
+      fetchUser(user.user_id); // Refresh user data to see updated rewards
     } catch (error) {
       console.error(
         "Error completing quest:",
@@ -158,6 +159,31 @@ function App() {
       );
       setMessage(
         `Complete quest failed: ${error.response?.data.detail || error.message}`
+      );
+    }
+  };
+
+  const claimQuest = async (quest_id) => {
+    if (!user) {
+      alert("Please log in first.");
+      return;
+    }
+    try {
+      const payload = {
+        user_id: user.user_id,
+        quest_id: quest_id,
+      };
+      await axios.post(`${QUEST_PROCESSING_URL}/claim-quest/`, payload);
+      setMessage("Quest claimed and reward granted!");
+      fetchUserQuests();
+      fetchUser(user.user_id); // Refresh user data to see updated rewards
+    } catch (error) {
+      console.error(
+        "Error claiming quest:",
+        error.response?.data || error.message
+      );
+      setMessage(
+        `Claim quest failed: ${error.response?.data.detail || error.message}`
       );
     }
   };
@@ -171,179 +197,282 @@ function App() {
   };
 
   return (
-    <div>
-      <h1>Gamification Platform Test</h1>
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-center mb-6">
+          Gamification Platform
+        </h1>
 
-      {!token ? (
-        <div>
-          <form onSubmit={handleSignup}>
-            <h2>Sign Up</h2>
-            <input
-              type="text"
-              required
-              value={signupData.user_name}
-              onChange={(e) =>
-                setSignupData({ ...signupData, user_name: e.target.value })
-              }
-              placeholder="Username"
-            />
-            <input
-              type="password"
-              required
-              value={signupData.password}
-              onChange={(e) =>
-                setSignupData({ ...signupData, password: e.target.value })
-              }
-              placeholder="Password"
-            />
-            <select
-              value={signupData.status}
-              onChange={(e) =>
-                setSignupData({ ...signupData, status: e.target.value })
-              }
+        {!token ? (
+          <div className="flex flex-col md:flex-row justify-between mb-8">
+            <form
+              onSubmit={handleSignup}
+              className="bg-white p-6 rounded shadow-md mb-4 md:mb-0 md:mr-4 w-full"
             >
-              <option value="new">New</option>
-              <option value="not_new">Not New</option>
-              <option value="banned">Banned</option>
-            </select>
-            <button type="submit">Sign Up</button>
-          </form>
+              <h2 className="text-xl font-semibold mb-4">Sign Up</h2>
+              <div className="mb-3">
+                <input
+                  type="text"
+                  required
+                  value={signupData.user_name}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, user_name: e.target.value })
+                  }
+                  placeholder="Username"
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <input
+                  type="password"
+                  required
+                  value={signupData.password}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, password: e.target.value })
+                  }
+                  placeholder="Password"
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <select
+                  value={signupData.status}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, status: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="new">New</option>
+                  <option value="not_new">Not New</option>
+                  <option value="banned">Banned</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
+              >
+                Sign Up
+              </button>
+            </form>
 
-          <form onSubmit={handleLogin}>
-            <h2>Log In</h2>
-            <input
-              type="text"
-              required
-              value={loginData.user_name}
-              onChange={(e) =>
-                setLoginData({ ...loginData, user_name: e.target.value })
-              }
-              placeholder="Username"
-            />
-            <input
-              type="password"
-              required
-              value={loginData.password}
-              onChange={(e) =>
-                setLoginData({ ...loginData, password: e.target.value })
-              }
-              placeholder="Password"
-            />
-            <button type="submit">Log In</button>
-          </form>
-        </div>
-      ) : (
-        <div>
-          <h2>Welcome, {user?.user_name}!</h2>
-          <p>
-            Gold: {user?.gold} | Diamonds: {user?.diamond} | Status:{" "}
-            {user?.status}
-          </p>
-          <button onClick={handleLogout}>Log Out</button>
-        </div>
-      )}
-
-      {token && (
-        <div>
-          <h2>Available Quests</h2>
-          <button onClick={fetchQuests}>Fetch Quests</button>
-          {quests.length > 0 ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Description</th>
-                  <th>Reward</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quests.map((quest) => (
-                  <tr key={quest.quest_id}>
-                    <td>{quest.quest_id}</td>
-                    <td>{quest.name}</td>
-                    <td>{quest.description}</td>
-                    <td>
-                      {quest.reward_name} - {quest.reward_qty}{" "}
-                      {quest.reward_item}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>No quests available. Click "Fetch Quests" to load quests.</p>
-          )}
-        </div>
-      )}
-
-      {token && quests.length > 0 && (
-        <div>
-          <h2>Assign Quest</h2>
-          <form onSubmit={assignQuest}>
-            <select
-              required
-              value={assignQuestData.quest_id}
-              onChange={(e) =>
-                setAssignQuestData({
-                  ...assignQuestData,
-                  quest_id: e.target.value,
-                })
-              }
+            <form
+              onSubmit={handleLogin}
+              className="bg-white p-6 rounded shadow-md w-full"
             >
-              <option value="">-- Select a Quest --</option>
-              {quests.map((quest) => (
-                <option key={quest.quest_id} value={quest.quest_id}>
-                  {quest.name}
-                </option>
-              ))}
-            </select>
-            <button type="submit">Assign Quest</button>
-          </form>
-        </div>
-      )}
+              <h2 className="text-xl font-semibold mb-4">Log In</h2>
+              <div className="mb-3">
+                <input
+                  type="text"
+                  required
+                  value={loginData.user_name}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, user_name: e.target.value })
+                  }
+                  placeholder="Username"
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <div className="mb-3">
+                <input
+                  type="password"
+                  required
+                  value={loginData.password}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, password: e.target.value })
+                  }
+                  placeholder="Password"
+                  className="w-full px-3 py-2 border rounded"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600"
+              >
+                Log In
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="mb-8 flex justify-between items-center bg-white p-6 rounded shadow-md">
+            <div>
+              <h2 className="text-xl font-semibold">
+                Welcome, {user?.user_name}!
+              </h2>
+              <p>
+                Gold: {user?.gold} | Diamonds: {user?.diamond} | Status:{" "}
+                {user?.status}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+            >
+              Log Out
+            </button>
+          </div>
+        )}
 
-      {token && (
-        <div>
-          <h2>Your Quests</h2>
-          <button onClick={fetchUserQuests}>Fetch Your Quests</button>
-          {userQuests.length > 0 ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Quest ID</th>
-                  <th>Quest Name</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {userQuests.map((uq) => (
-                  <tr key={`${uq.quest_id}-${uq.user_id}`}>
-                    <td>{uq.quest_id}</td>
-                    <td>{uq.quest_name}</td>
-                    <td>{uq.status}</td>
-                    <td>
-                      {uq.status !== "claimed" && (
-                        <button onClick={() => completeQuest(uq.quest_id)}>
-                          Complete Quest
-                        </button>
-                      )}
-                      {uq.status === "claimed" && <span>Completed</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p>You have no assigned quests. Assign a quest to get started!</p>
-          )}
-        </div>
-      )}
+        {token && (
+          <>
+            <div className="bg-white p-6 rounded shadow-md mb-8">
+              <h2 className="text-2xl font-semibold mb-4">Available Quests</h2>
+              <button
+                onClick={fetchQuests}
+                className="mb-4 bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600"
+              >
+                Fetch Quests
+              </button>
+              {quests.length > 0 ? (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="px-4 py-2">ID</th>
+                      <th className="px-4 py-2">Name</th>
+                      <th className="px-4 py-2">Description</th>
+                      <th className="px-4 py-2">Reward</th>
+                      <th className="px-4 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quests.map((quest) => (
+                      <tr key={quest.quest_id} className="border-t">
+                        <td className="px-4 py-2">{quest.quest_id}</td>
+                        <td className="px-4 py-2">{quest.name}</td>
+                        <td className="px-4 py-2">{quest.description}</td>
+                        <td className="px-4 py-2">
+                          {quest.auto_claim ? "Auto-Claim" : "Manual Claim"}
+                          <br />
+                          {quest.streak} times needed
+                          <br />
+                          Reward: {quest.reward_qty} {quest.reward_item}
+                        </td>
+                        <td className="px-4 py-2">
+                          <button
+                            onClick={() =>
+                              setAssignQuestData({ quest_id: quest.quest_id })
+                            }
+                            className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                          >
+                            Assign Quest
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>No quests available. Click "Fetch Quests" to load quests.</p>
+              )}
+            </div>
 
-      {message && <p>{message}</p>}
+            <div className="bg-white p-6 rounded shadow-md mb-8">
+              <h2 className="text-2xl font-semibold mb-4">Assign Quest</h2>
+              <form
+                onSubmit={assignQuest}
+                className="flex flex-col md:flex-row items-center"
+              >
+                <div className="mb-4 md:mb-0 md:mr-4">
+                  <select
+                    required
+                    value={assignQuestData.quest_id}
+                    onChange={(e) =>
+                      setAssignQuestData({
+                        ...assignQuestData,
+                        quest_id: e.target.value,
+                      })
+                    }
+                    className="px-3 py-2 border rounded w-full"
+                  >
+                    <option value="">-- Select a Quest --</option>
+                    {quests.map((quest) => (
+                      <option key={quest.quest_id} value={quest.quest_id}>
+                        {quest.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="submit"
+                  className="mt-4 md:mt-0 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+                >
+                  Assign Quest
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-white p-6 rounded shadow-md mb-8">
+              <h2 className="text-2xl font-semibold mb-4">Your Quests</h2>
+              <button
+                onClick={fetchUserQuests}
+                className="mb-4 bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+              >
+                Fetch Your Quests
+              </button>
+              {userQuests.length > 0 ? (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="px-4 py-2">Quest ID</th>
+                      <th className="px-4 py-2">Quest Name</th>
+                      <th className="px-4 py-2">Status</th>
+                      <th className="px-4 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userQuests.map((uq) => (
+                      <tr
+                        key={`${uq.quest_id}-${uq.user_id}`}
+                        className="border-t"
+                      >
+                        <td className="px-4 py-2">{uq.quest_id}</td>
+                        <td className="px-4 py-2">
+                          {getQuestName(uq.quest_id)}
+                        </td>
+                        <td className="px-4 py-2 capitalize">{uq.status}</td>
+                        <td className="px-4 py-2">
+                          {uq.status === "completed" && (
+                            <button
+                              onClick={() => claimQuest(uq.quest_id)}
+                              className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"
+                            >
+                              Claim Reward
+                            </button>
+                          )}
+                          {uq.status === "claimed" && (
+                            <span className="text-green-700 font-semibold">
+                              Claimed
+                            </span>
+                          )}
+                          {uq.status === "in_progress" && (
+                            <span className="text-blue-500 font-semibold">
+                              In Progress
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>
+                  You have no assigned quests. Assign a quest to get started!
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {message && <p className="mt-4 text-center text-red-500">{message}</p>}
+      </div>
     </div>
   );
 }
+
+// Helper function to fetch quest name based on quest_id
+const getQuestName = (quest_id) => {
+  // Implement a mechanism to fetch quest names, possibly by maintaining a local state or fetching from Quest Catalog Service
+  // For simplicity, returning "Quest" here
+  return `Quest ${quest_id}`;
+};
 
 export default App;
