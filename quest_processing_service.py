@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from typing import List
 import requests
 import logging
+import re
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -25,7 +26,7 @@ app.add_middleware(
 
 # Service URLs (Consider moving to environment variables for flexibility)
 AUTH_SERVICE_ADD_DIAMONDS_URL = "http://localhost:8001/add-diamonds/{user_id}/"
-AUTH_SERVICE_ADD_GOLD_URL = "http://localhost:8001/add-gold/{user_id}/"  # Ensure this endpoint exists
+AUTH_SERVICE_ADD_GOLD_URL = "http://localhost:8001/add-gold/{user_id}/" 
 QUEST_CATALOG_SERVICE_URL = "http://localhost:8002"
 
 def get_db():
@@ -49,28 +50,13 @@ def init_db():
             status TEXT NOT NULL, -- "in_progress", "completed", "claimed"
             progress INTEGER NOT NULL DEFAULT 0,
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES Users(user_id),
-            FOREIGN KEY (quest_id) REFERENCES Quests(quest_id),
             PRIMARY KEY (user_id, quest_id)
         );
         """
     )
-    # If the table already exists without 'progress', add it
-    cursor.execute(
-        """
-        PRAGMA table_info(User_Quest_Rewards);
-        """
-    )
-    columns = [info[1] for info in cursor.fetchall()]
-    if "progress" not in columns:
-        cursor.execute(
-            """
-            ALTER TABLE User_Quest_Rewards ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;
-            """
-        )
-        logger.info("Added 'progress' column to User_Quest_Rewards table.")
     conn.commit()
     conn.close()
+    logger.info("Database initialized successfully.")
 
 # Initialize the database upon service start
 init_db()
@@ -100,6 +86,7 @@ def get_quest_details(quest_id: int):
     try:
         response = requests.get(f"{QUEST_CATALOG_SERVICE_URL}/quests/{quest_id}/")
         if response.status_code == 200:
+            logger.info(f"Fetched details for quest_id {quest_id}.")
             return response.json()
         else:
             logger.error(f"Failed to fetch quest {quest_id}: {response.status_code} {response.text}")
@@ -113,7 +100,9 @@ def get_all_quests():
     try:
         response = requests.get(f"{QUEST_CATALOG_SERVICE_URL}/quests/")
         if response.status_code == 200:
-            return response.json()
+            quests = response.json()
+            logger.info(f"Fetched {len(quests)} quests successfully.")
+            return quests
         else:
             logger.error(f"Failed to fetch quests: {response.status_code} {response.text}")
             return []
@@ -126,6 +115,7 @@ def get_reward_details(reward_id: int):
     try:
         response = requests.get(f"{QUEST_CATALOG_SERVICE_URL}/rewards/{reward_id}/")
         if response.status_code == 200:
+            logger.info(f"Fetched details for reward_id {reward_id}.")
             return response.json()
         else:
             logger.error(f"Failed to fetch reward {reward_id}: {response.status_code} {response.text}")
@@ -137,10 +127,10 @@ def get_reward_details(reward_id: int):
 def reward_user(user_id: int, qty: int, item: str):
     """Grants rewards to the user via the Auth Service."""
     try:
-        if item == "diamond":
+        if item.lower() == "diamond":
             url = AUTH_SERVICE_ADD_DIAMONDS_URL.format(user_id=user_id)
             payload = {"diamonds": qty}
-        elif item == "gold":
+        elif item.lower() == "gold":
             url = AUTH_SERVICE_ADD_GOLD_URL.format(user_id=user_id)
             payload = {"gold": qty}
         else:
@@ -195,6 +185,7 @@ def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get
         logger.info(f"Assigned quest {assign_quest.quest_id} to user {assign_quest.user_id}.")
         return {"message": "Quest assigned successfully"}
     except HTTPException as he:
+        logger.error(f"HTTPException: {he.detail}")
         raise he
     except Exception as e:
         logger.error(f"Error assigning quest: {e}")
@@ -205,24 +196,28 @@ def get_user_quests(user_id: int, db: sqlite3.Connection = Depends(get_db)):
     """
     Retrieves all quests assigned to a user.
     """
-    cursor = db.cursor()
-    cursor.execute(
-        """
-        SELECT quest_id, status, progress, date FROM User_Quest_Rewards WHERE user_id = ?
-        """,
-        (user_id,)
-    )
-    user_quests = cursor.fetchall()
-    return [
-        UserQuestReward(
-            user_id=user_id,
-            quest_id=quest["quest_id"],
-            status=quest["status"],
-            progress=quest["progress"],
-            date=quest["date"]
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            SELECT quest_id, status, progress, date FROM User_Quest_Rewards WHERE user_id = ?
+            """,
+            (user_id,)
         )
-        for quest in user_quests
-    ]
+        user_quests = cursor.fetchall()
+        return [
+            UserQuestReward(
+                user_id=user_id,
+                quest_id=quest["quest_id"],
+                status=quest["status"],
+                progress=quest["progress"],
+                date=quest["date"]
+            )
+            for quest in user_quests
+        ]
+    except Exception as e:
+        logger.error(f"Error fetching user quests: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/complete-quest/")
 def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get_db)):
@@ -259,7 +254,6 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
             else:
                 # Auto-claimed quests should already be "claimed"
                 raise HTTPException(status_code=400, detail="Quest already claimed.")
-        
         # Determine if quest completion criteria are met
         if current_progress >= quest["streak"]:
             if quest["auto_claim"]:
@@ -298,6 +292,7 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
             raise HTTPException(status_code=400, detail="Quest not yet completed.")
         
     except HTTPException as he:
+        logger.error(f"HTTPException: {he.detail}")
         raise he
     except Exception as e:
         logger.error(f"Error completing quest: {e}")
@@ -315,8 +310,15 @@ def track_sign_in(data: TrackSignIn, db: sqlite3.Connection = Depends(get_db)):
         if not all_quests:
             raise HTTPException(status_code=500, detail="Failed to fetch quests from Quest Catalog Service")
 
-        # Filter quests related to sign-ins (Assuming quests with 'Sign In' in their name)
-        sign_in_quests = [q for q in all_quests if "Sign In" in q["name"]]
+        # Log all fetched quests
+        logger.info(f"All quests fetched: {all_quests}")
+
+        # Use a case-insensitive and flexible regex to match "sign in" in quest names
+        pattern = re.compile(r"sign[-\s]?in", re.IGNORECASE)
+        sign_in_quests = [q for q in all_quests if pattern.search(q["name"])]
+
+        # Log filtered sign-in quests
+        logger.info(f"Filtered sign-in quests: {sign_in_quests}")
 
         if not sign_in_quests:
             return {"messages": ["No sign-in quests available."]}
@@ -340,6 +342,7 @@ def track_sign_in(data: TrackSignIn, db: sqlite3.Connection = Depends(get_db)):
                 (user_id, quest_id)
             )
             result = cursor.fetchone()
+
             if result:
                 current_status = result["status"]
                 current_progress = result["progress"]
@@ -351,83 +354,82 @@ def track_sign_in(data: TrackSignIn, db: sqlite3.Connection = Depends(get_db)):
                 messages.append(f"Quest '{quest['name']}' already claimed.")
                 continue
 
-            # Check duplication limits
-            cursor.execute(
-                """
-                SELECT COUNT(*) as count FROM User_Quest_Rewards
-                WHERE user_id = ? AND quest_id = ?
-                """,
-                (user_id, quest_id)
-            )
-            count_result = cursor.fetchone()
-            current_count = count_result["count"] if count_result else 0
+            if result:
+                # Quest is already assigned, increment progress
+                new_progress = current_progress + 1
+                if new_progress >= streak_required:
+                    if auto_claim:
+                        # Automatically claim the quest and grant reward
+                        cursor.execute(
+                            """
+                            UPDATE User_Quest_Rewards
+                            SET status = ?, progress = ?
+                            WHERE user_id = ? AND quest_id = ?
+                            """,
+                            ("claimed", streak_required, user_id, quest_id)
+                        )
+                        db.commit()
+                        logger.info(f"Quest {quest_id} for user {user_id} auto-claimed.")
+                        # Fetch reward details
+                        reward = get_reward_details(reward_id)
+                        if reward:
+                            reward_user(user_id, reward["reward_qty"], reward["reward_item"])
+                            messages.append(f"Quest '{quest['name']}' completed and reward granted.")
+                        else:
+                            messages.append(f"Quest '{quest['name']}' completed but failed to grant reward.")
+                    else:
+                        # Mark quest as completed, awaiting manual claim
+                        cursor.execute(
+                            """
+                            UPDATE User_Quest_Rewards
+                            SET status = ?
+                            WHERE user_id = ? AND quest_id = ?
+                            """,
+                            ("completed", user_id, quest_id)
+                        )
+                        db.commit()
+                        logger.info(f"Quest {quest_id} for user {user_id} marked as completed.")
+                        messages.append(f"Quest '{quest['name']}' completed. Please claim your reward.")
+                else:
+                    # Update progress
+                    cursor.execute(
+                        """
+                        UPDATE User_Quest_Rewards
+                        SET progress = ?
+                        WHERE user_id = ? AND quest_id = ?
+                        """,
+                        (new_progress, user_id, quest_id)
+                    )
+                    db.commit()
+                    logger.info(f"Quest {quest_id} for user {user_id} progress updated to {new_progress}.")
+                    messages.append(f"Progress for quest '{quest['name']}': {new_progress}/{streak_required}")
+            else:
+                # Quest not assigned yet, check duplication limit
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) as count FROM User_Quest_Rewards
+                    WHERE user_id = ? AND quest_id = ?
+                    """,
+                    (user_id, quest_id)
+                )
+                count_result = cursor.fetchone()
+                current_count = count_result["count"] if count_result else 0
 
-            if current_count >= duplication_limit:
-                messages.append(f"Quest '{quest['name']}' duplication limit reached.")
-                continue
+                if current_count >= duplication_limit:
+                    messages.append(f"Quest '{quest['name']}' duplication limit reached.")
+                    continue
 
-            # Assign quest if not already assigned
-            if not result:
+                # Assign quest with initial progress of 1
                 cursor.execute(
                     """
                     INSERT INTO User_Quest_Rewards (user_id, quest_id, status, progress)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (user_id, quest_id, "in_progress", 0)
+                    (user_id, quest_id, "in_progress", 1)
                 )
                 db.commit()
-                current_status = "in_progress"
-                current_progress = 0
-                logger.info(f"Assigned quest {quest_id} to user {user_id}.")
-
-            # Increment progress
-            new_progress = current_progress + 1
-            if new_progress >= streak_required:
-                if auto_claim:
-                    # Automatically claim the quest and grant reward
-                    cursor.execute(
-                        """
-                        UPDATE User_Quest_Rewards
-                        SET status = ?, progress = ?
-                        WHERE user_id = ? AND quest_id = ?
-                        """,
-                        ("claimed", streak_required, user_id, quest_id)
-                    )
-                    db.commit()
-                    logger.info(f"Quest {quest_id} for user {user_id} auto-claimed.")
-                    # Fetch reward details
-                    reward = get_reward_details(reward_id)
-                    if reward:
-                        reward_user(user_id, reward["reward_qty"], reward["reward_item"])
-                        messages.append(f"Quest '{quest['name']}' completed and reward granted.")
-                    else:
-                        messages.append(f"Quest '{quest['name']}' completed but failed to grant reward.")
-                else:
-                    # Mark quest as completed, awaiting manual claim
-                    cursor.execute(
-                        """
-                        UPDATE User_Quest_Rewards
-                        SET status = ?
-                        WHERE user_id = ? AND quest_id = ?
-                        """,
-                        ("completed", user_id, quest_id)
-                    )
-                    db.commit()
-                    logger.info(f"Quest {quest_id} for user {user_id} marked as completed.")
-                    messages.append(f"Quest '{quest['name']}' completed. Please claim your reward.")
-            else:
-                # Update progress
-                cursor.execute(
-                    """
-                    UPDATE User_Quest_Rewards
-                    SET progress = ?
-                    WHERE user_id = ? AND quest_id = ?
-                    """,
-                    (new_progress, user_id, quest_id)
-                )
-                db.commit()
-                logger.info(f"Quest {quest_id} for user {user_id} progress updated to {new_progress}.")
-                messages.append(f"Progress for quest '{quest['name']}': {new_progress}/{streak_required}")
+                logger.info(f"Assigned quest {quest_id} to user {user_id}. Progress set to 1.")
+                messages.append(f"Progress for quest '{quest['name']}': 1/{streak_required}")
 
         return {"messages": messages}
     except HTTPException as he:
@@ -486,6 +488,7 @@ def claim_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get_
             raise HTTPException(status_code=500, detail="Reward details not found.")
         
     except HTTPException as he:
+        logger.error(f"HTTPException: {he.detail}")
         raise he
     except Exception as e:
         logger.error(f"Error claiming quest: {e}")

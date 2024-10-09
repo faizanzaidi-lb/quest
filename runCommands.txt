@@ -2,3 +2,32 @@ python3 -m venv env
 source env/bin/activate
 pip3 install -r requirements.txt
 
+1. 
+
+curl -X POST http://localhost:8002/rewards/ \
+     -H "Content-Type: application/json" \
+     -d '{
+           "reward_name": "Diamonds",
+           "reward_item": "diamond",
+           "reward_qty": 10
+         }'
+
+2. 
+curl -X POST http://localhost:8002/quests/ \
+     -H "Content-Type: application/json" \
+     -d '{
+           "reward_id": 1,
+           "auto_claim": true,
+           "streak": 3,
+           "duplication": 1,
+           "name": "Sign-In-Three-Times",
+           "description": "Log in to the platform three times to receive a reward of 10 diamonds."
+         }'
+
+3.
+curl -X POST http://localhost:8003/assign-quest/ \
+     -H "Content-Type: application/json" \
+     -d '{
+           "user_id": 1,
+           "quest_id": 1
+         }'
