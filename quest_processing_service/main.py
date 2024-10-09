@@ -26,7 +26,7 @@ app.add_middleware(
 
 AUTH_SERVICE_ADD_DIAMONDS_URL = "http://api_gateway:8000/add-diamonds/{user_id}/"
 AUTH_SERVICE_ADD_GOLD_URL = "http://api_gateway:8000/add-gold/{user_id}/"
-QUEST_CATALOG_SERVICE_URL = "http://api_gateway:8000/quests/"
+QUEST_CATALOG_SERVICE_URL = "http://api_gateway:8000"
 
 
 def get_db():

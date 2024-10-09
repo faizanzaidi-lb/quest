@@ -95,7 +95,7 @@ function App() {
     }
   };
 
-  const assignQuest = async (e) => {
+  const assignQuest = async (e, quest_id) => {
     e.preventDefault();
     if (!user) {
       alert("Please log in first.");
@@ -104,7 +104,7 @@ function App() {
     try {
       const payload = {
         user_id: user.user_id,
-        quest_id: parseInt(assignQuestData.quest_id),
+        quest_id: parseInt(quest_id),
       };
       await axios.post(`${QUEST_PROCESSING_URL}/assign-quest/`, payload);
       setMessage("Quest assigned successfully!");
@@ -164,6 +164,8 @@ function App() {
   };
 
   const claimQuest = async (quest_id) => {
+    console.log("ok");
+    alert("Please log in first.");
     if (!user) {
       alert("Please log in first.");
       return;
@@ -348,9 +350,10 @@ function App() {
                         </td>
                         <td className="px-4 py-2">
                           <button
-                            onClick={() =>
-                              setAssignQuestData({ quest_id: quest.quest_id })
-                            }
+                            onClick={(e) => {
+                              setAssignQuestData({ quest_id: quest.quest_id });
+                              assignQuest(e, quest.quest_id);
+                            }}
                             className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
                           >
                             Assign Quest

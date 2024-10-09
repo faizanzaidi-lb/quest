@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Request, Response
 import httpx
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 app = FastAPI()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 # Configure CORS as needed
 app.add_middleware(
@@ -15,15 +19,18 @@ app.add_middleware(
 
 # Define the service URLs
 SERVICES = {
-    "auth": "http://auth_service:8001",  # Use the service name defined in docker-compose
+    "auth": "http://auth_service:8001",
     "quest_catalog": "http://quest_catalog_service:8002",
     "quest_processing": "http://quest_processing_service:8003",
 }
+
 
 @app.middleware("http")
 async def proxy_requests(request: Request, call_next):
     path = request.url.path
     method = request.method.lower()
+
+    logging.info(f"Incoming request: {method.upper()} {path}")
 
     # Handle preflight CORS requests
     if method == "options":
@@ -38,6 +45,7 @@ async def proxy_requests(request: Request, call_next):
         )
 
     # Determine which service to route to based on the path
+    target_url = None
     if (
         path.startswith("/signup")
         or path.startswith("/login")
@@ -58,6 +66,8 @@ async def proxy_requests(request: Request, call_next):
         target_url = SERVICES["quest_processing"] + path
     else:
         return Response(content="Not Found", status_code=404)
+
+    logging.info(f"Proxying request to: {target_url}")
 
     async with httpx.AsyncClient() as client:
         try:
@@ -82,15 +92,10 @@ async def proxy_requests(request: Request, call_next):
             else:
                 return Response(content="Method Not Allowed", status_code=405)
         except httpx.RequestError as e:
+            logging.error(f"Request error: {e}")
             return Response(content=str(e), status_code=500)
 
     # Prepare the response to return to the client
     return Response(
         content=resp.content, status_code=resp.status_code, headers=resp.headers
     )
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
