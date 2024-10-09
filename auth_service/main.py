@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SECRET_KEY = "your_secret_key"
-QUEST_PROCESSING_SERVICE_URL = "http://localhost:8000/track-sign-in/"
+QUEST_PROCESSING_SERVICE_URL = "http://api_gateway:8000/track-sign-in/"
 
 app = FastAPI()
 

@@ -15,11 +15,10 @@ app.add_middleware(
 
 # Define the service URLs
 SERVICES = {
-    "auth": "http://localhost:8001",
-    "quest_catalog": "http://localhost:8002",
-    "quest_processing": "http://localhost:8003",
+    "auth": "http://auth_service:8001",  # Use the service name defined in docker-compose
+    "quest_catalog": "http://quest_catalog_service:8002",
+    "quest_processing": "http://quest_processing_service:8003",
 }
-
 
 @app.middleware("http")
 async def proxy_requests(request: Request, call_next):
