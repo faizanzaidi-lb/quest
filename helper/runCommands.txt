@@ -19,7 +19,7 @@ curl -X POST "http://localhost:8001/login" \
 
 1. 
 
-curl -X POST http://localhost:8002/rewards/ \
+curl -X POST http://localhost:8000/rewards/ \
      -H "Content-Type: application/json" \
      -d '{
            "reward_name": "Diamonds",
