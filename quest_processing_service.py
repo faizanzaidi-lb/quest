@@ -9,37 +9,32 @@ import requests
 import logging
 import re
 
-# Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Configure CORS (Adjust origins as needed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with specific origins in production
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Service URLs (Consider moving to environment variables for flexibility)
-AUTH_SERVICE_ADD_DIAMONDS_URL = "http://localhost:8001/add-diamonds/{user_id}/"
-AUTH_SERVICE_ADD_GOLD_URL = "http://localhost:8001/add-gold/{user_id}/" 
-QUEST_CATALOG_SERVICE_URL = "http://localhost:8002"
+AUTH_SERVICE_ADD_DIAMONDS_URL = "http://localhost:8000/add-diamonds/{user_id}/"
+AUTH_SERVICE_ADD_GOLD_URL = "http://localhost:8000/add-gold/{user_id}/" 
+QUEST_CATALOG_SERVICE_URL = "http://localhost:8000"
 
 def get_db():
-    """Provides a connection to the Quest Processing Service's database."""
     conn = sqlite3.connect("quest_processing.db", check_same_thread=False)
-    conn.row_factory = sqlite3.Row  # Enables name-based access to columns
+    conn.row_factory = sqlite3.Row  
     try:
         yield conn
     finally:
         conn.close()
 
 def init_db():
-    """Initializes the Quest Processing Service's database."""
     conn = sqlite3.connect("quest_processing.db")
     cursor = conn.cursor()
     cursor.execute(
@@ -58,10 +53,8 @@ def init_db():
     conn.close()
     logger.info("Database initialized successfully.")
 
-# Initialize the database upon service start
 init_db()
 
-# Pydantic Models
 class AssignQuest(BaseModel):
     user_id: int
     quest_id: int
@@ -80,7 +73,6 @@ class ClaimQuest(BaseModel):
     user_id: int
     quest_id: int
 
-# Helper Functions
 def get_quest_details(quest_id: int):
     """Fetches quest details from the Quest Catalog Service."""
     try:
@@ -96,7 +88,6 @@ def get_quest_details(quest_id: int):
         return None
 
 def get_all_quests():
-    """Fetches all quests from the Quest Catalog Service."""
     try:
         response = requests.get(f"{QUEST_CATALOG_SERVICE_URL}/quests/")
         if response.status_code == 200:
@@ -111,7 +102,6 @@ def get_all_quests():
         return []
 
 def get_reward_details(reward_id: int):
-    """Fetches reward details from the Quest Catalog Service."""
     try:
         response = requests.get(f"{QUEST_CATALOG_SERVICE_URL}/rewards/{reward_id}/")
         if response.status_code == 200:
@@ -125,7 +115,6 @@ def get_reward_details(reward_id: int):
         return None
 
 def reward_user(user_id: int, qty: int, item: str):
-    """Grants rewards to the user via the Auth Service."""
     try:
         if item.lower() == "diamond":
             url = AUTH_SERVICE_ADD_DIAMONDS_URL.format(user_id=user_id)
@@ -143,8 +132,6 @@ def reward_user(user_id: int, qty: int, item: str):
             logger.error(f"Failed to add {item} to user {user_id}: {response.status_code} {response.text}")
     except Exception as e:
         logger.error(f"Exception while rewarding user {user_id}: {e}")
-
-# API Endpoints
 
 @app.post("/assign-quest/")
 def assign_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(get_db)):
@@ -300,33 +287,18 @@ def complete_quest(assign_quest: AssignQuest, db: sqlite3.Connection = Depends(g
 
 @app.post("/track-sign-in/")
 def track_sign_in(data: TrackSignIn, db: sqlite3.Connection = Depends(get_db)):
-    """
-    Tracks user sign-ins and updates quest progress accordingly.
-    """
     user_id = data.user_id
     try:
-        # Fetch all quests from Quest Catalog Service
         all_quests = get_all_quests()
         if not all_quests:
             raise HTTPException(status_code=500, detail="Failed to fetch quests from Quest Catalog Service")
 
-        # Log all fetched quests
         logger.info(f"All quests fetched: {all_quests}")
-
-        # Use a case-insensitive and flexible regex to match "sign in" in quest names
-        pattern = re.compile(r"sign[-\s]?in", re.IGNORECASE)
-        sign_in_quests = [q for q in all_quests if pattern.search(q["name"])]
-
-        # Log filtered sign-in quests
-        logger.info(f"Filtered sign-in quests: {sign_in_quests}")
-
-        if not sign_in_quests:
-            return {"messages": ["No sign-in quests available."]}
 
         messages = []
         cursor = db.cursor()
 
-        for quest in sign_in_quests:
+        for quest in all_quests:
             quest_id = quest["quest_id"]
             streak_required = quest["streak"]
             auto_claim = quest["auto_claim"]

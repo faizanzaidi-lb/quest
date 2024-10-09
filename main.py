@@ -1,5 +1,3 @@
-# api_gateway.py
-
 from fastapi import FastAPI, Request, Response
 import httpx
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,14 +43,18 @@ async def proxy_requests(request: Request, call_next):
         path.startswith("/signup")
         or path.startswith("/login")
         or path.startswith("/users")
+        or path.startswith("/add-diamonds")
+        or path.startswith("/add-gold")
     ):
         target_url = SERVICES["auth"] + path
-    elif path.startswith("/quests"):
+    elif path.startswith("/quests") or path.startswith("/rewards"):
         target_url = SERVICES["quest_catalog"] + path
     elif (
         path.startswith("/assign-quest")
         or path.startswith("/user-quests")
         or path.startswith("/complete-quest")
+        or path.startswith("/track-sign-in")
+        or path.startswith("/claim-quest")
     ):
         target_url = SERVICES["quest_processing"] + path
     else:

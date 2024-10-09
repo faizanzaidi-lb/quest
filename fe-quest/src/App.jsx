@@ -366,41 +366,6 @@ function App() {
             </div>
 
             <div className="bg-white p-6 rounded shadow-md mb-8">
-              <h2 className="text-2xl font-semibold mb-4">Assign Quest</h2>
-              <form
-                onSubmit={assignQuest}
-                className="flex flex-col md:flex-row items-center"
-              >
-                <div className="mb-4 md:mb-0 md:mr-4">
-                  <select
-                    required
-                    value={assignQuestData.quest_id}
-                    onChange={(e) =>
-                      setAssignQuestData({
-                        ...assignQuestData,
-                        quest_id: e.target.value,
-                      })
-                    }
-                    className="px-3 py-2 border rounded w-full"
-                  >
-                    <option value="">-- Select a Quest --</option>
-                    {quests.map((quest) => (
-                      <option key={quest.quest_id} value={quest.quest_id}>
-                        {quest.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  type="submit"
-                  className="mt-4 md:mt-0 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-                >
-                  Assign Quest
-                </button>
-              </form>
-            </div>
-
-            <div className="bg-white p-6 rounded shadow-md mb-8">
               <h2 className="text-2xl font-semibold mb-4">Your Quests</h2>
               <button
                 onClick={fetchUserQuests}
@@ -425,9 +390,7 @@ function App() {
                         className="border-t"
                       >
                         <td className="px-4 py-2">{uq.quest_id}</td>
-                        <td className="px-4 py-2">
-                          {getQuestName(uq.quest_id)}
-                        </td>
+                        <td className="px-4 py-2">{uq.name}</td>
                         <td className="px-4 py-2 capitalize">{uq.status}</td>
                         <td className="px-4 py-2">
                           {uq.status === "completed" && (
@@ -467,12 +430,5 @@ function App() {
     </div>
   );
 }
-
-// Helper function to fetch quest name based on quest_id
-const getQuestName = (quest_id) => {
-  // Implement a mechanism to fetch quest names, possibly by maintaining a local state or fetching from Quest Catalog Service
-  // For simplicity, returning "Quest" here
-  return `Quest ${quest_id}`;
-};
 
 export default App;

@@ -11,18 +11,17 @@ import datetime
 import requests
 import logging
 
-# Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = "your_secret_key"  # Replace with a secure secret key in production
-QUEST_PROCESSING_SERVICE_URL = "http://localhost:8003/track-sign-in/"
+SECRET_KEY = "your_secret_key" 
+QUEST_PROCESSING_SERVICE_URL = "http://localhost:8000/track-sign-in/"
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with specific origins in production
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,8 +58,6 @@ def init_db():
 
 init_db()
 
-
-# Pydantic Models
 class UserCreate(BaseModel):
     user_name: str
     password: str
